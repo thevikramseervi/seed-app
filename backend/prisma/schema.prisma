@@ -1,0 +1,317 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Enums
+enum Role {
+  EMPLOYEE
+  LAB_ADMIN
+  SUPER_ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  HALF_DAY
+  CASUAL_LEAVE
+  WEEKEND
+  HOLIDAY
+}
+
+enum LeaveType {
+  CASUAL_LEAVE
+  UNPAID_LEAVE
+}
+
+enum LeaveStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum PaymentStatus {
+  DRAFT
+  PROCESSED
+  PAID
+}
+
+enum AnnouncementPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum TargetAudience {
+  ALL
+  EMPLOYEES
+  ADMINS
+}
+
+// Models
+model User {
+  id               String   @id @default(uuid())
+  employeeId       String   @unique @map("employee_id")
+  employeeNumber   Int      @unique @map("employee_number")
+  name             String
+  email            String   @unique
+  passwordHash     String   @map("password_hash")
+  designation      String   @default("Annotator")
+  role             Role     @default(EMPLOYEE)
+  dateOfJoining    DateTime @map("date_of_joining") @db.Date
+  dateOfLeaving    DateTime? @map("date_of_leaving") @db.Date
+  baseSalary       Decimal  @default(22000) @map("base_salary") @db.Decimal(10, 2)
+  status             UserStatus @default(ACTIVE)
+  twoFactorEnabled   Boolean    @default(false) @map("two_factor_enabled")
+  twoFactorSecret    String?    @map("two_factor_secret")
+  createdAt          DateTime   @default(now()) @map("created_at")
+  updatedAt          DateTime   @updatedAt @map("updated_at")
+
+  // Relations
+  attendance        Attendance[]
+  biometricLogs     BiometricLog[]
+  leaveApplications LeaveApplication[] @relation("applicant")
+  reviewedLeaves    LeaveApplication[] @relation("reviewer")
+  leaveBalances     LeaveBalance[]
+  payrolls          Payroll[] @relation("employee")
+  generatedPayrolls Payroll[] @relation("generator")
+  announcements        Announcement[]
+  announcementReads    AnnouncementRead[]
+  passwordResetTokens  PasswordResetToken[]
+  activities        ActivityEntry[]
+  createdActivities ActivityEntry[] @relation("activity_creator")
+  notifications     Notification[]
+
+  @@map("users")
+}
+
+model PasswordResetToken {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  token     String   @unique
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("password_reset_tokens")
+}
+
+model Attendance {
+  id              String            @id @default(uuid())
+  userId          String            @map("user_id")
+  date            DateTime          @db.Date
+  status          AttendanceStatus
+  biometricSynced Boolean           @default(false) @map("biometric_synced")
+  firstInTime     DateTime?         @map("first_in_time") @db.Time
+  lastOutTime     DateTime?         @map("last_out_time") @db.Time
+  totalDuration   Int?              @map("total_duration") // in minutes
+  manualOverride  Boolean           @default(false) @map("manual_override")
+  notes           String?
+  createdAt       DateTime          @default(now()) @map("created_at")
+  updatedAt       DateTime          @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([userId, date])
+  @@index([userId, date])
+  @@index([date, userId])
+  @@map("attendance")
+}
+
+model BiometricLog {
+  id        String    @id @default(uuid())
+  userId    String    @map("user_id")
+  date      DateTime  @db.Date
+  inTime    DateTime? @map("in_time")
+  outTime   DateTime? @map("out_time")
+  inDoor    String?   @map("in_door")
+  outDoor   String?   @map("out_door")
+  duration  Int       @default(0) // in minutes
+  rawData   Json?     @map("raw_data")
+  processed Boolean   @default(false)
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, date])
+  @@map("biometric_logs")
+}
+
+model LeaveApplication {
+  id          String      @id @default(uuid())
+  userId      String      @map("user_id")
+  leaveType   LeaveType   @map("leave_type")
+  fromDate    DateTime    @map("from_date") @db.Date
+  toDate      DateTime    @map("to_date") @db.Date
+  totalDays   Int         @map("total_days")
+  reason      String
+  status      LeaveStatus @default(PENDING)
+  appliedAt   DateTime    @default(now()) @map("applied_at")
+  reviewedBy  String?     @map("reviewed_by")
+  reviewedAt  DateTime?   @map("reviewed_at")
+  reviewNotes String?     @map("review_notes")
+  createdAt   DateTime    @default(now()) @map("created_at")
+  updatedAt   DateTime    @updatedAt @map("updated_at")
+
+  user     User  @relation("applicant", fields: [userId], references: [id])
+  reviewer User? @relation("reviewer", fields: [reviewedBy], references: [id])
+
+  @@index([userId, status])
+  @@index([fromDate])
+  @@map("leave_applications")
+}
+
+model LeaveBalance {
+  id                    String   @id @default(uuid())
+  userId                String   @map("user_id")
+  year                  Int
+  casualLeaveTotal      Int      @default(12) @map("casual_leave_total")
+  casualLeaveUsed       Int      @default(0) @map("casual_leave_used")
+  casualLeavePending    Int      @default(0) @map("casual_leave_pending")
+  casualLeaveAvailable  Int      @default(12) @map("casual_leave_available")
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([userId, year])
+  @@index([userId, year])
+  @@map("leave_balance")
+}
+
+model Payroll {
+  id              String        @id @default(uuid())
+  userId          String        @map("user_id")
+  month           Int
+  year            Int
+  baseSalary      Decimal       @map("base_salary") @db.Decimal(10, 2)
+  workingDays     Int           @map("working_days")
+  weekendDays     Int           @default(0) @map("weekend_days")
+  holidayDays     Int           @default(0) @map("holiday_days")
+  presentDays     Decimal       @map("present_days") @db.Decimal(5, 2)
+  casualLeaveDays Int           @default(0) @map("casual_leave_days")
+  halfDays        Decimal       @default(0) @map("half_days") @db.Decimal(5, 2)
+  lossOfPayDays   Int           @default(0) @map("loss_of_pay_days")
+  totalPayDays    Decimal       @map("total_pay_days") @db.Decimal(5, 2)
+  grossEarnings   Decimal       @map("gross_earnings") @db.Decimal(10, 2)
+  deductions      Decimal       @default(0) @db.Decimal(10, 2)
+  reimbursements  Decimal       @default(0) @db.Decimal(10, 2)
+  netSalary       Decimal       @map("net_salary") @db.Decimal(10, 2)
+  paymentStatus   PaymentStatus @default(DRAFT) @map("payment_status")
+  paymentDate     DateTime?     @map("payment_date") @db.Date
+  generatedAt     DateTime      @default(now()) @map("generated_at")
+  generatedBy     String        @map("generated_by")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+
+  user      User @relation("employee", fields: [userId], references: [id])
+  generator User @relation("generator", fields: [generatedBy], references: [id])
+
+  @@unique([userId, month, year])
+  @@index([userId, month, year])
+  @@map("payroll")
+}
+
+model ActivityEntry {
+  id           String   @id @default(uuid())
+  userId       String   @map("user_id")
+  date         DateTime @db.Date
+  userType     String   @map("user_type")
+  project      String
+  task         String
+  subTask      String?  @map("sub_task")
+  unit         String
+  nos          Int
+  percentage   Decimal  @db.Decimal(5, 2)
+  productivity Decimal  @db.Decimal(10, 2)
+  weightage    Decimal  @db.Decimal(10, 2)
+  createdById  String   @map("created_by_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  user      User @relation(fields: [userId], references: [id])
+  createdBy User @relation("activity_creator", fields: [createdById], references: [id])
+
+  @@index([date, userId])
+  @@index([userId, date])
+  @@map("activity_entries")
+}
+
+model Holiday {
+  id          String   @id @default(uuid())
+  date        DateTime @unique @db.Date
+  name        String
+  description String?
+  isMandatory Boolean  @default(true) @map("is_mandatory")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("holidays")
+}
+
+model Announcement {
+  id             String                @id @default(uuid())
+  title          String
+  content        String
+  priority       AnnouncementPriority  @default(MEDIUM)
+  isPinned       Boolean               @default(false) @map("is_pinned")
+  isActive       Boolean               @default(true) @map("is_active")
+  targetAudience TargetAudience        @default(ALL) @map("target_audience")
+  createdBy      String                @map("created_by")
+  expiresAt      DateTime?             @map("expires_at")
+  createdAt      DateTime              @default(now()) @map("created_at")
+  updatedAt      DateTime              @updatedAt @map("updated_at")
+
+  creator User               @relation(fields: [createdBy], references: [id])
+  reads   AnnouncementRead[]
+
+  @@index([isActive, isPinned, createdAt])
+  @@map("announcements")
+}
+
+model AnnouncementRead {
+  id             String       @id @default(uuid())
+  announcementId String       @map("announcement_id")
+  userId         String       @map("user_id")
+  readAt         DateTime     @default(now()) @map("read_at")
+
+  announcement Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id])
+
+  @@unique([announcementId, userId])
+  @@index([userId])
+  @@map("announcement_reads")
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  type      String
+  title     String
+  body      String
+  data      Json?
+  readAt    DateTime? @map("read_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, createdAt])
+  @@index([userId, readAt])
+  @@map("notifications")
+}
