@@ -86,7 +86,7 @@ const Dashboard: React.FC = () => {
   return (
     <Box>
       <PageHeader
-        title={user ? `Welcome back :, ${user.name}!` : 'Dashboard'}
+        title={user ? `Welcome back : , ${user.name}!` : 'Dashboard'}
         subtitle="Here’s an overview of your attendance and updates for this month."
       />
       <Grid container spacing={3}>
