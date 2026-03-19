@@ -112,7 +112,7 @@ const allNavItems = navSections.flatMap((s) => s.items);
 /* Theme-aware sidebar palette */
 const sidebarPalettes = {
   dark: {
-    bg: '#0F172A',
+    bg: '#0B1120',
     text: '#94A3B8',
     textActive: '#FFFFFF',
     hover: 'rgba(148,163,184,0.08)',
@@ -122,14 +122,14 @@ const sidebarPalettes = {
     divider: 'rgba(148,163,184,0.12)',
   },
   light: {
-    bg: '#FFFFFF',
-    text: '#64748B',
-    textActive: '#4F46E5',
-    hover: 'rgba(99,102,241,0.06)',
-    activeBg: 'rgba(99,102,241,0.1)',
-    sectionLabel: '#94A3B8',
-    brandText: '#1E293B',
-    divider: 'rgba(0,0,0,0.08)',
+    bg: '#1E293B',
+    text: '#94A3B8',
+    textActive: '#FFFFFF',
+    hover: 'rgba(255,255,255,0.06)',
+    activeBg: 'rgba(99,102,241,0.25)',
+    sectionLabel: '#64748B',
+    brandText: '#F1F5F9',
+    divider: 'rgba(255,255,255,0.08)',
   },
 };
 
@@ -210,15 +210,22 @@ const DashboardLayout: React.FC = () => {
         overflow: 'hidden',
       }}
     >
-      {/* Brand / Logo */}
+      {/* Brand / Logo — click to toggle sidebar */}
       <Box
+        onClick={handleDesktopSidebarToggle}
         sx={{
           px: sidebarCollapsed ? 1.5 : 2.5,
-          py: 3,
+          py: 2.5,
           display: 'flex',
           alignItems: 'center',
           gap: 1.5,
           justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
+          cursor: 'pointer',
+          userSelect: 'none',
+          borderRadius: 2,
+          mx: 1,
+          transition: 'background-color 0.15s',
+          '&:hover': { bgcolor: sp.hover },
         }}
       >
         <Avatar
@@ -231,20 +238,34 @@ const DashboardLayout: React.FC = () => {
             flexShrink: 0,
             bgcolor: '#fff',
             border: '2px solid',
-            borderColor: mode === 'dark' ? 'rgba(99,102,241,0.4)' : 'rgba(99,102,241,0.2)',
+            borderColor: 'rgba(99,102,241,0.4)',
             p: '4px',
             '& img': { objectFit: 'contain' },
           }}
         />
         {!sidebarCollapsed && (
-          <Typography
-            variant="h6"
-            noWrap
-            fontWeight={700}
-            sx={{ color: sp.brandText, letterSpacing: -0.3 }}
-          >
-            SEED LAB
-          </Typography>
+          <Box sx={{ minWidth: 0 }}>
+            <Typography
+              variant="h6"
+              noWrap
+              fontWeight={700}
+              sx={{ color: sp.brandText, letterSpacing: -0.3, lineHeight: 1.2 }}
+            >
+              SEED LAB
+            </Typography>
+            <Typography
+              variant="caption"
+              noWrap
+              sx={{
+                color: sp.sectionLabel,
+                fontWeight: 600,
+                letterSpacing: 1.5,
+                fontSize: '0.6rem',
+              }}
+            >
+              WORKSPACE
+            </Typography>
+          </Box>
         )}
       </Box>
 
@@ -347,22 +368,12 @@ const DashboardLayout: React.FC = () => {
           transition: (theme) => theme.transitions.create(['margin', 'width']),
           bgcolor: 'background.paper',
           color: 'text.primary',
-          borderBottom: 1,
+          borderBottom: '1px solid',
           borderColor: 'divider',
         }}
       >
         <Toolbar>
-          <Tooltip title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
-            <IconButton
-              color="inherit"
-              edge="start"
-              onClick={handleDesktopSidebarToggle}
-              sx={{ mr: 2, display: { xs: 'none', sm: 'inline-flex' } }}
-              aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            >
-              <MenuIcon />
-            </IconButton>
-          </Tooltip>
+          {/* Mobile-only hamburger (sidebar is toggled via logo click on desktop) */}
           <Tooltip title="Open menu">
             <IconButton
               color="inherit"
@@ -495,6 +506,7 @@ const DashboardLayout: React.FC = () => {
               width: 260,
               bgcolor: sp.bg,
               border: 'none',
+              borderRadius: 0,
             },
           }}
         >
@@ -506,13 +518,10 @@ const DashboardLayout: React.FC = () => {
             display: { xs: 'none', sm: 'block' },
             '& .MuiDrawer-paper': {
               boxSizing: 'border-box',
-              width: effectiveDrawerWidth - 20,
+              width: effectiveDrawerWidth,
               bgcolor: sp.bg,
-              border: mode === 'light' ? '1px solid' : 'none',
-              borderColor: 'divider',
-              m: '10px',
-              height: 'calc(100% - 20px)',
-              borderRadius: 3,
+              border: 'none',
+              borderRadius: 0,
               transition: (theme) =>
                 theme.transitions.create('width', {
                   duration: theme.transitions.duration.standard,
