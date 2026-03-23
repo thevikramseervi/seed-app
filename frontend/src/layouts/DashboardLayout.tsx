@@ -23,11 +23,11 @@ import {
 } from '@mui/material';
 import {
   Menu as MenuIcon,
-  Dashboard,
-  CalendarMonth,
-  ListAlt,
-  BeachAccess,
-  Receipt,
+  GridView,
+  HowToReg,
+  DescriptionOutlined,
+  EventAvailable,
+  AccountBalanceWallet,
   Campaign,
   People,
   EventNote,
@@ -67,11 +67,11 @@ const navSections: NavSection[] = [
   {
     label: 'MAIN',
     items: [
-      { title: 'Dashboard', path: '/', icon: <Dashboard /> },
-      { title: 'Attendance', path: '/attendance', icon: <CalendarMonth /> },
-      { title: 'Activity Report', path: '/activity', icon: <ListAlt /> },
-      { title: 'Leave', path: '/leave', icon: <BeachAccess /> },
-      { title: 'Salary Slips', path: '/salary-slips', icon: <Receipt /> },
+      { title: 'Dashboard', path: '/', icon: <GridView /> },
+      { title: 'Attendance', path: '/attendance', icon: <HowToReg /> },
+      { title: 'Activity Report', path: '/activity', icon: <DescriptionOutlined /> },
+      { title: 'Leave', path: '/leave', icon: <EventAvailable /> },
+      { title: 'Salary Slips', path: '/salary-slips', icon: <AccountBalanceWallet /> },
     ],
   },
   {
@@ -370,6 +370,12 @@ const DashboardLayout: React.FC = () => {
           color: 'text.primary',
           borderBottom: '1px solid',
           borderColor: 'divider',
+          //  no borderCorner radius for a cleaner look with the drawer
+          borderRadius: 0,
+
+
+
+
         }}
       >
         <Toolbar>

@@ -1,7 +1,7 @@
 {
-  "name": "Attend Ease",
-  "short_name": "Attend Ease",
-  "description": "Attendance & Payroll System",
+  "name": "SEED LAB WORKFLOW",
+  "short_name": "SEED LAB",
+  "description": "Attendance, Leave & Payroll System",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#F8FAFC",
@@ -9,9 +9,9 @@
   "orientation": "portrait-primary",
   "icons": [
     {
-      "src": "/vite.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
+      "src": "/seed-logo.png",
+      "sizes": "424x189",
+      "type": "image/png",
       "purpose": "any"
     }
   ]

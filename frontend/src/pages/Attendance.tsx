@@ -94,12 +94,13 @@ const getCellBg = (
 ): string => {
   if (!isCurrentMonth) return isDark ? 'grey.900' : 'grey.50';
   switch (status) {
-    case AttendanceStatus.PRESENT:    return isDark ? 'success.dark' : 'success.light';
-    case AttendanceStatus.ABSENT:     return isDark ? 'error.dark'   : 'error.light';
-    case AttendanceStatus.HALF_DAY:   return isDark ? 'warning.dark' : 'warning.light';
-    case AttendanceStatus.CASUAL_LEAVE: return isDark ? 'info.dark'  : 'info.light';
-    case AttendanceStatus.HOLIDAY:    return isDark ? 'primary.dark' : 'primary.light';
-    default:                          return isDark ? 'grey.800'     : 'grey.100';
+    case AttendanceStatus.PRESENT:      return isDark ? 'success.dark' : 'success.light';
+    case AttendanceStatus.ABSENT:       return isDark ? 'error.dark'   : 'error.light';
+    case AttendanceStatus.HALF_DAY:     return isDark ? 'warning.dark' : 'warning.light';
+    case AttendanceStatus.CASUAL_LEAVE: return isDark ? 'info.dark'    : 'info.light';
+    case AttendanceStatus.HOLIDAY:      return isDark ? 'primary.dark' : 'primary.light';
+    case AttendanceStatus.WEEKEND:      return isDark ? '#1E293B'      : '#E2E8F0';
+    default:                            return isDark ? 'grey.800'     : 'grey.100';
   }
 };
 

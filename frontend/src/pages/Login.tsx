@@ -151,27 +151,31 @@ const Login: React.FC = () => {
                 : '1px solid rgba(148,163,184,0.3)',
             display: 'flex',
             flexDirection: { xs: 'column', md: 'row' },
-            minHeight: { md: 480 },
+            minHeight: { md: 520 },
           }}
         >
-          {/* Left image / brand panel */}
+          {/* Left brand panel */}
           <Box
             sx={{
-              flex: { xs: '0 0 180px', md: '0 0 45%' },
-              position: 'relative',
-              backgroundImage: 'url("/login-hero.jpg")',
-              backgroundSize: 'cover',
-              backgroundPosition: 'center',
+              flex: { xs: '0 0 220px', md: '0 0 45%' },
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              bgcolor: '#0B1120',
+              p: { xs: 2, md: 3 },
             }}
           >
             <Box
+              component="img"
+              src="/seed_logo_svg.png"
+              alt="SEED LAB"
               sx={{
-                position: 'absolute',
-                inset: 0,
-                bgcolor: 'rgba(15,23,42,0.15)',
+                width: '100%',
+                height: '100%',
+                maxHeight: { xs: 180, md: '100%' },
+                objectFit: 'contain',
               }}
             />
-            {/* Image-only panel; overlay handled by background + dark scrim */}
           </Box>
 
           {/* Right form panel */}
@@ -184,175 +188,175 @@ const Login: React.FC = () => {
               justifyContent: 'center',
             }}
           >
-            <Box sx={{ mb: 3 }}>
-              <Box
+          <Box sx={{ mb: 3 }}>
+            <Box
+              sx={{
+                width: 48,
+                height: 48,
+                borderRadius: '50%',
+                bgcolor: 'primary.main',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                mb: 2,
+              }}
+            >
+              <LoginIcon sx={{ color: 'common.white' }} />
+            </Box>
+            <Typography variant="h4" fontWeight={700} gutterBottom>
+              Welcome back
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Sign in to access your dashboard.
+            </Typography>
+          </Box>
+
+          {successMessage && (
+            <Alert severity="success" sx={{ mb: 2, borderRadius: 2 }}>
+              {successMessage}
+            </Alert>
+          )}
+          {error && (
+            <Alert
+              severity="error"
+              sx={{ mb: 2, borderRadius: 2 }}
+              onClose={() => setError('')}
+            >
+              {error}
+            </Alert>
+          )}
+
+          {step === '2fa' ? (
+            <form onSubmit={handle2faSubmit}>
+              <Typography variant="body1" color="text.secondary" sx={{ mb: 2 }}>
+                Enter the 6-digit code from your authenticator app.
+              </Typography>
+              <TextField
+                label="Verification code"
+                placeholder="000000"
+                fullWidth
+                value={twoFactorCode}
+                onChange={(e) => setTwoFactorCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                inputProps={{ maxLength: 6, inputMode: 'numeric', pattern: '[0-9]*' }}
+                margin="normal"
+                autoFocus
+              />
+              <Button
+                type="submit"
+                fullWidth
+                variant="contained"
+                size="large"
+                disabled={loading || twoFactorCode.length !== 6}
+                startIcon={<LoginIcon />}
                 sx={{
-                  width: 48,
-                  height: 48,
-                  borderRadius: '50%',
-                  bgcolor: 'primary.main',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
+                  mt: 3,
                   mb: 2,
+                  py: 1.75,
+                  borderRadius: 2,
+                  fontWeight: 700,
+                  textTransform: 'none',
+                  boxShadow: `0 4px 14px 0 ${theme.palette.primary.main}40`,
                 }}
               >
-                <LoginIcon sx={{ color: 'common.white' }} />
-              </Box>
-              <Typography variant="h4" fontWeight={700} gutterBottom>
-                Welcome back
+                {loading ? 'Verifying…' : 'Verify and sign in'}
+              </Button>
+              <Typography variant="body2" sx={{ textAlign: 'center', mt: 1 }}>
+                <Typography
+                  component="button"
+                  type="button"
+                  onClick={handleBackToLogin}
+                  sx={{
+                    color: 'primary.main',
+                    textDecoration: 'none',
+                    fontWeight: 600,
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    padding: 0,
+                  }}
+                >
+                  Back to sign in
+                </Typography>
               </Typography>
-              <Typography variant="body2" color="text.secondary">
-                Sign in to access your dashboard.
-              </Typography>
-            </Box>
-
-            {successMessage && (
-              <Alert severity="success" sx={{ mb: 2, borderRadius: 2 }}>
-                {successMessage}
-              </Alert>
-            )}
-            {error && (
-              <Alert
-                severity="error"
-                sx={{ mb: 2, borderRadius: 2 }}
-                onClose={() => setError('')}
+            </form>
+          ) : (
+            <form onSubmit={handleSubmit}>
+              <TextField
+                label="Email address"
+                type="email"
+                fullWidth
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                margin="normal"
+                autoComplete="email"
+                autoFocus
+              />
+              <TextField
+                label="Password"
+                type={showPassword ? 'text' : 'password'}
+                fullWidth
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                margin="normal"
+                autoComplete="current-password"
+                InputProps={{
+                  endAdornment: (
+                    <InputAdornment position="end">
+                      <Tooltip title={showPassword ? 'Hide password' : 'Show password'}>
+                        <IconButton
+                          onClick={() => setShowPassword(!showPassword)}
+                          edge="end"
+                          size="small"
+                          aria-label={showPassword ? 'Hide password' : 'Show password'}
+                        >
+                          {showPassword ? (
+                            <VisibilityOff fontSize="small" />
+                          ) : (
+                            <Visibility fontSize="small" />
+                          )}
+                        </IconButton>
+                      </Tooltip>
+                    </InputAdornment>
+                  ),
+                }}
+              />
+              <Button
+                type="submit"
+                fullWidth
+                variant="contained"
+                size="large"
+                disabled={loading}
+                startIcon={<LoginIcon />}
+                sx={{
+                  mt: 3,
+                  mb: 2,
+                  py: 1.75,
+                  borderRadius: 2,
+                  fontWeight: 700,
+                  textTransform: 'none',
+                  boxShadow: `0 4px 14px 0 ${theme.palette.primary.main}40`,
+                }}
               >
-                {error}
-              </Alert>
-            )}
-
-            {step === '2fa' ? (
-              <form onSubmit={handle2faSubmit}>
-                <Typography variant="body1" color="text.secondary" sx={{ mb: 2 }}>
-                  Enter the 6-digit code from your authenticator app.
-                </Typography>
-                <TextField
-                  label="Verification code"
-                  placeholder="000000"
-                  fullWidth
-                  value={twoFactorCode}
-                  onChange={(e) => setTwoFactorCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                  inputProps={{ maxLength: 6, inputMode: 'numeric', pattern: '[0-9]*' }}
-                  margin="normal"
-                  autoFocus
-                />
-                <Button
-                  type="submit"
-                  fullWidth
-                  variant="contained"
-                  size="large"
-                  disabled={loading || twoFactorCode.length !== 6}
-                  startIcon={<LoginIcon />}
-                  sx={{
-                    mt: 3,
-                    mb: 2,
-                    py: 1.75,
-                    borderRadius: 2,
-                    fontWeight: 700,
-                    textTransform: 'none',
-                    boxShadow: `0 4px 14px 0 ${theme.palette.primary.main}40`,
+                {loading ? 'Signing in…' : 'Sign In'}
+              </Button>
+              <Typography variant="body2" sx={{ textAlign: 'right', mt: 1 }}>
+                <Link
+                  to="/forgot-password"
+                  style={{
+                    color: theme.palette.primary.main,
+                    textDecoration: 'none',
+                    fontWeight: 600,
                   }}
                 >
-                  {loading ? 'Verifying…' : 'Verify and sign in'}
-                </Button>
-                <Typography variant="body2" sx={{ textAlign: 'center', mt: 1 }}>
-                  <Typography
-                    component="button"
-                    type="button"
-                    onClick={handleBackToLogin}
-                    sx={{
-                      color: 'primary.main',
-                      textDecoration: 'none',
-                      fontWeight: 600,
-                      background: 'none',
-                      border: 'none',
-                      cursor: 'pointer',
-                      padding: 0,
-                    }}
-                  >
-                    Back to sign in
-                  </Typography>
-                </Typography>
-              </form>
-            ) : (
-              <form onSubmit={handleSubmit}>
-                <TextField
-                  label="Email address"
-                  type="email"
-                  fullWidth
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                  margin="normal"
-                  autoComplete="email"
-                  autoFocus
-                />
-                <TextField
-                  label="Password"
-                  type={showPassword ? 'text' : 'password'}
-                  fullWidth
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  margin="normal"
-                  autoComplete="current-password"
-                  InputProps={{
-                    endAdornment: (
-                      <InputAdornment position="end">
-                        <Tooltip title={showPassword ? 'Hide password' : 'Show password'}>
-                          <IconButton
-                            onClick={() => setShowPassword(!showPassword)}
-                            edge="end"
-                            size="small"
-                            aria-label={showPassword ? 'Hide password' : 'Show password'}
-                          >
-                            {showPassword ? (
-                              <VisibilityOff fontSize="small" />
-                            ) : (
-                              <Visibility fontSize="small" />
-                            )}
-                          </IconButton>
-                        </Tooltip>
-                      </InputAdornment>
-                    ),
-                  }}
-                />
-                <Button
-                  type="submit"
-                  fullWidth
-                  variant="contained"
-                  size="large"
-                  disabled={loading}
-                  startIcon={<LoginIcon />}
-                  sx={{
-                    mt: 3,
-                    mb: 2,
-                    py: 1.75,
-                    borderRadius: 2,
-                    fontWeight: 700,
-                    textTransform: 'none',
-                    boxShadow: `0 4px 14px 0 ${theme.palette.primary.main}40`,
-                  }}
-                >
-                  {loading ? 'Signing in…' : 'Sign In'}
-                </Button>
-                <Typography variant="body2" sx={{ textAlign: 'right', mt: 1 }}>
-                  <Link
-                    to="/forgot-password"
-                    style={{
-                      color: theme.palette.primary.main,
-                      textDecoration: 'none',
-                      fontWeight: 600,
-                    }}
-                  >
-                    Forgot password?
-                  </Link>
-                </Typography>
-              </form>
-            )}
+                  Forgot password?
+                </Link>
+              </Typography>
+            </form>
+          )}
 
-          </CardContent>
+        </CardContent>
         </Card>
       </Container>
     </Box>
