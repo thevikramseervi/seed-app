@@ -2,8 +2,9 @@ import { ConflictException, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { BiometricSyncService } from './biometric-sync.service';
 import { readSheetAsArraysFromBuffer } from './biometric-excel.utils';
-import { LeaveStatus, LeaveType } from '@prisma/client';
+import { AttendanceStatus, LeaveStatus, LeaveType } from '@prisma/client';
 import { getAccruedCasualLeaveUpToMonth, getProRataCasualLeaveForYear } from '../leave/leave.utils';
+import { isWeekend } from '../common/date.utils';
 
 export interface BiometricImportResult {
   logsCreated: number;
@@ -436,6 +437,69 @@ export class BiometricImportService {
     );
     result.datesProcessed = sortedDates;
     result.syncResults = batchSyncResult.details;
+
+    // Mark working days with NO punch as ABSENT for all users who had logs in this upload.
+    // This ensures days without biometric records don't remain blank.
+    if (monthStart && nextMonthStart && logsToInsert.length > 0) {
+      const affectedUserIds = Array.from(new Set(logsToInsert.map((l) => l.userId)));
+
+      // Build list of working days in the month (exclude weekends & holidays)
+      const holidays = await this.prisma.holiday.findMany({
+        where: { date: { gte: monthStart, lt: nextMonthStart } },
+      });
+      const holidayDates = new Set(holidays.map((h) => h.date.toISOString().slice(0, 10)));
+
+      const workingDays: Date[] = [];
+      for (let d = new Date(monthStart); d < nextMonthStart; d = new Date(d.getTime() + 86400000)) {
+        const dateStr = d.toISOString().slice(0, 10);
+        if (!isWeekend(d) && !holidayDates.has(dateStr)) {
+          workingDays.push(new Date(d));
+        }
+      }
+
+      // Find which user-date combos already have attendance
+      const existingAttendance = await this.prisma.attendance.findMany({
+        where: {
+          userId: { in: affectedUserIds },
+          date: { gte: monthStart, lt: nextMonthStart },
+        },
+        select: { userId: true, date: true },
+      });
+      const existingKeys = new Set(
+        existingAttendance.map((a) => `${a.userId}_${a.date.toISOString().slice(0, 10)}`),
+      );
+
+      // Create ABSENT records for missing working days
+      const absentRecords: Array<{
+        userId: string;
+        date: Date;
+        status: AttendanceStatus;
+        totalDuration: number;
+        biometricSynced: boolean;
+      }> = [];
+      for (const userId of affectedUserIds) {
+        for (const day of workingDays) {
+          const key = `${userId}_${day.toISOString().slice(0, 10)}`;
+          if (!existingKeys.has(key)) {
+            absentRecords.push({
+              userId,
+              date: day,
+              status: AttendanceStatus.ABSENT,
+              totalDuration: 0,
+              biometricSynced: true,
+            });
+          }
+        }
+      }
+
+      if (absentRecords.length > 0) {
+        await this.prisma.attendance.createMany({
+          data: absentRecords,
+          skipDuplicates: true,
+        });
+        this.logger.log(`Marked ${absentRecords.length} no-punch working days as ABSENT`);
+      }
+    }
 
     // After biometric upload + sync, reconcile CL/leave balance for the affected month so
     // previously applied CL reflects the latest biometric-derived attendance.
