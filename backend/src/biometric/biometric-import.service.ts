@@ -419,7 +419,7 @@ export class BiometricImportService {
                 biometricLogsDeleted: deletedLogs.count,
                 attendanceDeleted: deletedAttendance.count,
               };
-            })
+            }, { timeout: 30000 })
           : await this.prisma.$transaction(async (tx) => {
               const insertResult = await tx.biometricLog.createMany({ data: logsToInsert });
               result.logsCreated = insertResult.count;
@@ -429,7 +429,7 @@ export class BiometricImportService {
                 biometricLogsDeleted: 0,
                 attendanceDeleted: 0,
               };
-            });
+            }, { timeout: 30000 });
 
       if (overrideSummary.biometricLogsDeleted > 0 || overrideSummary.attendanceDeleted > 0) {
         result.overridden = overrideSummary;
