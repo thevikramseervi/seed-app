@@ -108,6 +108,9 @@ const AdminBiometricCard: React.FC<AdminBiometricCardProps> = ({ onMessage, sect
             // Upload phase covers 0% → 40%
             const pct = Math.round((e.loaded / e.total) * 40);
             setUploadProgress(pct);
+            // When upload completes, immediately start processing simulation
+            // while server is still parsing/syncing (before the response arrives)
+            if (e.loaded >= e.total) startProcessingPhase();
           }
         },
       };
@@ -118,8 +121,6 @@ const AdminBiometricCard: React.FC<AdminBiometricCardProps> = ({ onMessage, sect
           formData,
           axiosConfig,
         );
-        // File sent — now server is processing
-        startProcessingPhase();
         return data;
       } catch (err: any) {
         const status = err?.response?.status;
@@ -139,13 +140,13 @@ const AdminBiometricCard: React.FC<AdminBiometricCardProps> = ({ onMessage, sect
             resetUpload();
             throw new Error('Upload cancelled');
           }
+          setUploadPhase('uploading');
           setUploadProgress(5);
           const { data } = await api.post(
             `/biometric/upload?confirmOverride=true`,
             formData,
             axiosConfig,
           );
-          startProcessingPhase();
           return data;
         }
         resetUpload();

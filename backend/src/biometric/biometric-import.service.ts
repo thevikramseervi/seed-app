@@ -87,7 +87,54 @@ export class BiometricImportService {
       defval: null,
     })) as unknown[][];
 
-    // User lookup cache to avoid repeated DB queries for the same name
+    // Pre-fetch all users once for in-memory matching (avoids N DB queries per employee)
+    const allUsers = await this.prisma.user.findMany({
+      select: { id: true, name: true, employeeId: true, employeeNumber: true },
+    });
+    const byEmployeeId = new Map(allUsers.map((u) => [u.employeeId, u]));
+    const byEmployeeNum = new Map(
+      allUsers.filter((u) => u.employeeNumber != null).map((u) => [u.employeeNumber!, u]),
+    );
+    const byNameLower = new Map(allUsers.map((u) => [u.name.toLowerCase(), u]));
+
+    const resolveUserInMemory = (employeeName: string): typeof allUsers[0] | null => {
+      // 1. CITSEED employeeId match
+      if (employeeName.startsWith('CITSEED')) {
+        const u = byEmployeeId.get(employeeName);
+        if (u) return u;
+      }
+      // 2. Leading employee number
+      const numMatch = employeeName.match(/^(\d+)/);
+      if (numMatch) {
+        const u = byEmployeeNum.get(parseInt(numMatch[1]));
+        if (u) return u;
+      }
+      // 3. Exact name (case-insensitive)
+      const lower = employeeName.toLowerCase();
+      let u = byNameLower.get(lower);
+      if (u) return u;
+      // 4. Strip numeric prefix
+      const stripped = employeeName.replace(/^\d+-/, '').trim();
+      if (stripped && stripped !== employeeName) {
+        u = byNameLower.get(stripped.toLowerCase());
+        if (u) return u;
+        // 5. Strip single-letter dept code
+        const strippedFurther = stripped.replace(/^[A-Za-z]\s+/, '').trim();
+        if (strippedFurther && strippedFurther !== stripped) {
+          u = byNameLower.get(strippedFurther.toLowerCase());
+          if (u) return u;
+        }
+      }
+      // 6. Fuzzy contains (last resort)
+      const fuzzy = employeeName.replace(/^\d+\s*-\s*/, '').trim().toLowerCase();
+      if (fuzzy.length >= 4) {
+        for (const candidate of allUsers) {
+          if (candidate.name.toLowerCase().includes(fuzzy)) return candidate;
+        }
+      }
+      return null;
+    };
+
     const userCache = new Map<string, { id: string; name: string; employeeId: string } | null>();
     const datesSet = new Set<string>();
     const logsToInsert: any[] = [];
@@ -198,68 +245,13 @@ export class BiometricImportService {
           .trim();
         if (!employeeName) continue;
 
-        // Resolve user (cached)
+        // Resolve user (cached, in-memory matching — no DB queries per row)
         if (!userCache.has(employeeName)) {
-          let user = null;
-
-          // 1. CITSEED employeeId match (e.g. "CITSEED001")
-          if (employeeName.startsWith('CITSEED')) {
-            user = await this.prisma.user.findUnique({
-              where: { employeeId: employeeName },
-            });
-          }
-
-          // 2. Leading employee number match (e.g. "81-Kiran H B" → employeeNumber 81)
-          if (!user) {
-            const numericPrefixMatch = employeeName.match(/^(\d+)/);
-            if (numericPrefixMatch) {
-              const employeeNumber = parseInt(numericPrefixMatch[1]);
-              user = await this.prisma.user.findFirst({ where: { employeeNumber } });
-            }
-          }
-
-          // 3. Fallback: exact name match (case-insensitive)
-          if (!user) {
-            user = await this.prisma.user.findFirst({
-              where: { name: { equals: employeeName, mode: 'insensitive' } },
-            });
-          }
-
-          // 4. Fallback: strip numeric prefix (e.g. "308-harsha gowda s" → "harsha gowda s")
-          if (!user) {
-            const stripped = employeeName.replace(/^\d+-/, '').trim();
-            if (stripped && stripped !== employeeName) {
-              user = await this.prisma.user.findFirst({
-                where: { name: { equals: stripped, mode: 'insensitive' } },
-              });
-            }
-
-            // 5. Also try stripping single-letter dept code (e.g. "1-A Akshara Reddy" → "Akshara Reddy")
-            if (!user && stripped) {
-              const strippedFurther = stripped.replace(/^[A-Za-z]\s+/, '').trim();
-              if (strippedFurther && strippedFurther !== stripped) {
-                user = await this.prisma.user.findFirst({
-                  where: { name: { equals: strippedFurther, mode: 'insensitive' } },
-                });
-              }
-            }
-          }
-
-          // 6. Fuzzy fallback: contains match (last resort; avoids dropping entire imports when names differ slightly)
-          if (!user) {
-            const stripped = employeeName.replace(/^\d+\s*-\s*/, '').trim();
-            if (stripped && stripped.length >= 4) {
-              user = await this.prisma.user.findFirst({
-                where: { name: { contains: stripped, mode: 'insensitive' } },
-              });
-            }
-          }
-
+          const user = resolveUserInMemory(employeeName);
           userCache.set(
             employeeName,
             user ? { id: user.id, name: user.name, employeeId: user.employeeId } : null,
           );
-
           if (!user) {
             result.usersNotFound++;
             this.logger.warn(`Employee not found: ${employeeName}`);
@@ -436,21 +428,14 @@ export class BiometricImportService {
       }
     }
 
-    // Auto-sync all distinct dates in parallel
+    // Auto-sync all distinct dates in a single batch (1 query for logs, holidays, leaves
+    // instead of per-date queries — dramatically faster on remote DBs like Neon).
     const sortedDates = Array.from(datesSet).sort();
-    const syncResults = await Promise.all(
-      sortedDates.map((dateStr) =>
-        this.biometricSyncService
-          .syncBiometricDataForDate(new Date(dateStr))
-          .then((syncResult) => ({
-            date: dateStr,
-            processed: (syncResult as any)?.processed ?? 0,
-            skipped: (syncResult as any)?.skipped ?? 0,
-          })),
-      ),
+    const batchSyncResult = await this.biometricSyncService.syncBiometricDataBatch(
+      sortedDates.map((d) => new Date(d)),
     );
     result.datesProcessed = sortedDates;
-    result.syncResults = syncResults;
+    result.syncResults = batchSyncResult.details;
 
     // After biometric upload + sync, reconcile CL/leave balance for the affected month so
     // previously applied CL reflects the latest biometric-derived attendance.

@@ -297,6 +297,138 @@ export class BiometricSyncService {
     return { processed, skipped, errors };
   }
 
+  /**
+   * Batch-sync unprocessed biometric logs for multiple dates in a single pass.
+   * Fetches logs, holidays, and leaves ONCE instead of per-date, then upserts
+   * attendance with controlled concurrency.
+   */
+  async syncBiometricDataBatch(
+    dates: Date[],
+  ): Promise<{ processed: number; skipped: number; details: Array<{ date: string; processed: number; skipped: number }> }> {
+    if (dates.length === 0) return { processed: 0, skipped: 0, details: [] };
+
+    // 1. Single query: all unprocessed logs for all dates
+    const unprocessedLogs = await this.prisma.biometricLog.findMany({
+      where: { date: { in: dates }, processed: false },
+    });
+    if (unprocessedLogs.length === 0) {
+      return {
+        processed: 0,
+        skipped: 0,
+        details: dates.map((d) => ({ date: d.toISOString().slice(0, 10), processed: 0, skipped: 0 })),
+      };
+    }
+
+    // 2. Single query: holidays
+    const holidays = await this.prisma.holiday.findMany({ where: { date: { in: dates } } });
+    const holidayDates = new Set(holidays.map((h) => h.date.toISOString().slice(0, 10)));
+
+    // 3. Group by userId+date
+    const byUserDate = new Map<string, typeof unprocessedLogs>();
+    for (const log of unprocessedLogs) {
+      const key = `${log.userId}_${log.date.toISOString().slice(0, 10)}`;
+      if (!byUserDate.has(key)) byUserDate.set(key, []);
+      byUserDate.get(key)!.push(log);
+    }
+
+    // 4. Single query: approved leaves for affected users
+    const userIds = [...new Set(unprocessedLogs.map((l) => l.userId))];
+    const minDate = new Date(Math.min(...dates.map((d) => d.getTime())));
+    const maxDate = new Date(Math.max(...dates.map((d) => d.getTime())));
+    const leaves = await this.prisma.leaveApplication.findMany({
+      where: {
+        userId: { in: userIds },
+        status: LeaveStatus.APPROVED,
+        fromDate: { lte: maxDate },
+        toDate: { gte: minDate },
+      },
+    });
+    const leaveKeySet = new Set<string>();
+    for (const leave of leaves) {
+      const from = new Date(leave.fromDate);
+      const to = new Date(leave.toDate);
+      for (let d = new Date(from); d <= to; d.setUTCDate(d.getUTCDate() + 1)) {
+        leaveKeySet.add(`${leave.userId}_${d.toISOString().slice(0, 10)}`);
+      }
+    }
+
+    // 5. Process with controlled concurrency (batches of 10)
+    let totalProcessed = 0;
+    let totalSkipped = 0;
+    const dateStats = new Map<string, { processed: number; skipped: number }>();
+
+    const entries = [...byUserDate.entries()];
+    const BATCH_SIZE = 10;
+    for (let i = 0; i < entries.length; i += BATCH_SIZE) {
+      const batch = entries.slice(i, i + BATCH_SIZE);
+      await Promise.all(
+        batch.map(async ([key, logs]) => {
+          const userId = key.split('_')[0];
+          const dateStr = key.split('_')[1];
+          const date = logs[0].date;
+
+          try {
+            const dateIsWeekend = isWeekend(date);
+            const isHoliday = holidayDates.has(dateStr);
+
+            const sorted = [...logs]
+              .filter((l) => l.inTime)
+              .sort((a, b) => a.inTime!.getTime() - b.inTime!.getTime());
+            const firstIn = sorted[0]?.inTime ?? null;
+            const lastOut = sorted[sorted.length - 1]?.outTime ?? null;
+            const totalDurationMinutes =
+              firstIn && lastOut
+                ? Math.round((lastOut.getTime() - firstIn.getTime()) / 60000)
+                : logs.reduce((sum, l) => sum + l.duration, 0);
+
+            let status: AttendanceStatus;
+            if (dateIsWeekend) status = AttendanceStatus.WEEKEND;
+            else if (isHoliday) status = AttendanceStatus.HOLIDAY;
+            else if (leaveKeySet.has(key)) status = AttendanceStatus.CASUAL_LEAVE;
+            else status = getStatusFromWorkDurationMinutes(totalDurationMinutes);
+
+            await this.prisma.attendance.upsert({
+              where: { userId_date: { userId, date } },
+              update: { status, firstInTime: firstIn ?? undefined, lastOutTime: lastOut ?? undefined, totalDuration: totalDurationMinutes, biometricSynced: true },
+              create: { userId, date, status, firstInTime: firstIn ?? undefined, lastOutTime: lastOut ?? undefined, totalDuration: totalDurationMinutes, biometricSynced: true },
+            });
+
+            totalProcessed++;
+            const stat = dateStats.get(dateStr) ?? { processed: 0, skipped: 0 };
+            stat.processed++;
+            dateStats.set(dateStr, stat);
+          } catch (error) {
+            const err = error instanceof Error ? error : new Error(String(error));
+            this.logger.error(`Batch sync error for ${key}: ${err.message}`);
+            totalSkipped++;
+            const stat = dateStats.get(dateStr) ?? { processed: 0, skipped: 0 };
+            stat.skipped++;
+            dateStats.set(dateStr, stat);
+          }
+        }),
+      );
+    }
+
+    // 6. Batch mark all processed logs at once (single query instead of per-user-date)
+    const processedLogIds = unprocessedLogs.map((l) => l.id);
+    await this.prisma.biometricLog.updateMany({
+      where: { id: { in: processedLogIds } },
+      data: { processed: true },
+    });
+
+    this.logger.log(`Batch sync complete: ${totalProcessed} processed, ${totalSkipped} skipped across ${dates.length} dates`);
+
+    return {
+      processed: totalProcessed,
+      skipped: totalSkipped,
+      details: dates.map((d) => {
+        const dateStr = d.toISOString().slice(0, 10);
+        const stat = dateStats.get(dateStr) ?? { processed: 0, skipped: 0 };
+        return { date: dateStr, ...stat };
+      }),
+    };
+  }
+
   async syncBiometricDataForRange(startDate: Date, endDate: Date): Promise<any> {
     const start = new Date(Date.UTC(startDate.getUTCFullYear(), startDate.getUTCMonth(), startDate.getUTCDate()));
     const end = new Date(Date.UTC(endDate.getUTCFullYear(), endDate.getUTCMonth(), endDate.getUTCDate()));
