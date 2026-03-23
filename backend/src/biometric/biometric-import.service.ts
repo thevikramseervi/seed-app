@@ -438,10 +438,15 @@ export class BiometricImportService {
     result.datesProcessed = sortedDates;
     result.syncResults = batchSyncResult.details;
 
-    // Mark working days with NO punch as ABSENT for all users who had logs in this upload.
-    // This ensures days without biometric records don't remain blank.
+    // Mark working days with NO punch as ABSENT for ALL active users (not just those in the
+    // upload). This ensures every employee — including super admins or anyone not in the
+    // biometric export — gets ABSENT on days they didn't punch.
     if (monthStart && nextMonthStart && logsToInsert.length > 0) {
-      const affectedUserIds = Array.from(new Set(logsToInsert.map((l) => l.userId)));
+      const activeUsers = await this.prisma.user.findMany({
+        where: { status: 'ACTIVE' },
+        select: { id: true },
+      });
+      const allActiveUserIds = activeUsers.map((u) => u.id);
 
       // Build list of working days in the month (exclude weekends & holidays)
       const holidays = await this.prisma.holiday.findMany({
@@ -460,7 +465,7 @@ export class BiometricImportService {
       // Find which user-date combos already have attendance
       const existingAttendance = await this.prisma.attendance.findMany({
         where: {
-          userId: { in: affectedUserIds },
+          userId: { in: allActiveUserIds },
           date: { gte: monthStart, lt: nextMonthStart },
         },
         select: { userId: true, date: true },
@@ -477,7 +482,7 @@ export class BiometricImportService {
         totalDuration: number;
         biometricSynced: boolean;
       }> = [];
-      for (const userId of affectedUserIds) {
+      for (const userId of allActiveUserIds) {
         for (const day of workingDays) {
           const key = `${userId}_${day.toISOString().slice(0, 10)}`;
           if (!existingKeys.has(key)) {
