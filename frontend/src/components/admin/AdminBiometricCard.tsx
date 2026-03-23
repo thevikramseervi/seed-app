@@ -10,13 +10,8 @@ import {
   Divider,
   Paper,
   LinearProgress,
-  DialogTitle,
-  DialogContent,
-  DialogContentText,
-  DialogActions,
 } from '@mui/material';
-import { CloudUpload, Sync, CheckCircle, Warning } from '@mui/icons-material';
-import ResponsiveDialog from '../ResponsiveDialog';
+import { CloudUpload, Sync, CheckCircle } from '@mui/icons-material';
 import { useApiMutation } from '../../hooks';
 import api from '../../api/axios';
 import { QUERY_KEYS } from '../../queryKeys';
@@ -39,10 +34,6 @@ const AdminBiometricCard: React.FC<AdminBiometricCardProps> = ({ onMessage, sect
   const [syncEndDate, setSyncEndDate] = useState(
     () => new Date(Date.now() - 86400000).toISOString().split('T')[0]
   );
-
-  // --- Confirmation dialog ---
-  const [pendingFile, setPendingFile] = useState<File | null>(null);
-  const [confirmOpen, setConfirmOpen] = useState(false);
 
   // --- Progress tracking ---
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -188,21 +179,7 @@ const AdminBiometricCard: React.FC<AdminBiometricCardProps> = ({ onMessage, sect
       onMessage('Only .xlsx files are supported. Convert .xls to .xlsx first.', 'error');
       return;
     }
-    setPendingFile(file);
-    setConfirmOpen(true);
-  };
-
-  const handleConfirmUpload = () => {
-    if (!pendingFile) return;
-    setConfirmOpen(false);
-    uploadBiometricMutation.mutate({ file: pendingFile, confirmOverride: false });
-    setPendingFile(null);
-  };
-
-  const handleCancelUpload = () => {
-    setConfirmOpen(false);
-    setPendingFile(null);
-    if (fileInputRef.current) fileInputRef.current.value = '';
+    uploadBiometricMutation.mutate({ file, confirmOverride: false });
   };
 
   const isUploading = uploadPhase !== 'idle';
@@ -392,31 +369,6 @@ const AdminBiometricCard: React.FC<AdminBiometricCardProps> = ({ onMessage, sect
       </Card>
       )}
 
-      {/* Override confirmation dialog */}
-      <ResponsiveDialog open={confirmOpen} onClose={handleCancelUpload}>
-        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <Warning color="warning" />
-          Override Biometric Data?
-        </DialogTitle>
-        <DialogContent>
-          <DialogContentText>
-            Uploading <strong>{pendingFile?.name}</strong> will replace any existing biometric
-            records and attendance data for the dates found in this file. This action cannot be
-            undone.
-          </DialogContentText>
-        </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2 }}>
-          <Button onClick={handleCancelUpload}>Cancel</Button>
-          <Button
-            variant="contained"
-            color="warning"
-            onClick={handleConfirmUpload}
-            startIcon={<CloudUpload />}
-          >
-            Confirm Override
-          </Button>
-        </DialogActions>
-      </ResponsiveDialog>
     </>
   );
 };
