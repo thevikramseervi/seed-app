@@ -1,4 +1,5 @@
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Grid, Card, CardContent, Typography, Box, CircularProgress, Alert, Paper, Chip } from '@mui/material';
 import { alpha } from '@mui/material/styles';
@@ -16,6 +17,7 @@ import { QUERY_KEYS } from '../queryKeys';
 import PageHeader from '../components/PageHeader';
 
 const Dashboard: React.FC = () => {
+  const navigate = useNavigate();
   const { user } = useAuth();
 
   const { data: dashboardStats, isLoading: statsLoading, isError: statsError, failureCount: statsFailures } = useQuery({
@@ -94,13 +96,16 @@ const Dashboard: React.FC = () => {
           <Grid size={{ xs: 12, sm: 6, md: 3 }} key={index}>
             <Card
               elevation={0}
+              onClick={() => navigate('/attendance')}
               sx={{
                 border: 1,
                 borderColor: 'divider',
-                transition: 'box-shadow 0.2s ease, border-color 0.2s ease',
+                cursor: 'pointer',
+                transition: 'box-shadow 0.2s ease, border-color 0.2s ease, transform 0.15s ease',
                 '&:hover': {
                   boxShadow: '0 4px 20px rgb(0 0 0 / 0.08)',
                   borderColor: 'primary.light',
+                  transform: 'translateY(-2px)',
                 },
               }}
             >
