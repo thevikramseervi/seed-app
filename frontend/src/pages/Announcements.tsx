@@ -9,6 +9,7 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
+  DialogContentText,
   TextField,
   Chip,
   Alert,
@@ -16,8 +17,14 @@ import {
   InputLabel,
   Select,
   MenuItem,
+  IconButton,
+  Tooltip,
+  Switch,
+  FormControlLabel,
+  CircularProgress,
+  Paper,
 } from '@mui/material';
-import { Add, Campaign } from '@mui/icons-material';
+import { Add, Campaign, Delete, History } from '@mui/icons-material';
 import { announcementsApi } from '../api/announcements';
 import { Role } from '../types';
 import { useAuth } from '../contexts/AuthContext';
@@ -34,6 +41,9 @@ const Announcements: React.FC = () => {
   const { showSuccess, showError } = useSnackbar();
   const isAdmin = user?.role === Role.SUPER_ADMIN || user?.role === Role.LAB_ADMIN;
   const [open, setOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; title: string } | null>(null);
+  const [showDeleted, setShowDeleted] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const queryClient = useQueryClient();
 
   const [formData, setFormData] = useState({
@@ -50,8 +60,18 @@ const Announcements: React.FC = () => {
     error,
     refetch,
   } = useQuery({
-    queryKey: QUERY_KEYS.announcements,
-    queryFn: () => announcementsApi.getAll(),
+    queryKey: [QUERY_KEYS.announcements, showDeleted],
+    queryFn: () => isAdmin ? announcementsApi.getAllAdmin(showDeleted) : announcementsApi.getAll(),
+  });
+
+  const {
+    data: announcementHistory,
+    isLoading: historyLoading,
+    isError: historyError,
+  } = useQuery({
+    queryKey: [QUERY_KEYS.announcements, 'history'],
+    queryFn: () => announcementsApi.getHistory(),
+    enabled: historyOpen,
   });
 
   const createMutation = useMutation({
@@ -80,6 +100,18 @@ const Announcements: React.FC = () => {
     },
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => announcementsApi.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.announcements });
+      setDeleteTarget(null);
+      showSuccess('Announcement deleted!');
+    },
+    onError: (error: unknown) => {
+      showError(getApiErrorMessage(error, 'Failed to delete announcement'));
+    },
+  });
+
   const handleSubmit = () => {
     createMutation.mutate(formData);
   };
@@ -103,11 +135,35 @@ const Announcements: React.FC = () => {
         title="Announcements"
         subtitle="Company announcements and updates."
         actions={
-          isAdmin && (
-            <Button variant="contained" startIcon={<Add />} onClick={() => setOpen(true)}>
-              New Announcement
-            </Button>
-          )
+          <Box display="flex" alignItems="center" gap={2}>
+            {isAdmin && (
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={showDeleted}
+                    onChange={(e) => setShowDeleted(e.target.checked)}
+                    color="error"
+                  />
+                }
+                label="Show Deleted"
+              />
+            )}
+            {isAdmin && (
+              <Button
+                variant="outlined"
+                color="secondary"
+                startIcon={<History />}
+                onClick={() => setHistoryOpen(true)}
+              >
+                History
+              </Button>
+            )}
+            {isAdmin && (
+              <Button variant="contained" startIcon={<Add />} onClick={() => setOpen(true)}>
+                New Announcement
+              </Button>
+            )}
+          </Box>
         }
       />
 
@@ -127,7 +183,18 @@ const Announcements: React.FC = () => {
 
       {!isError && announcements && announcements.length > 0 ? (
         announcements.map((announcement) => (
-          <Card key={announcement.id} elevation={2} sx={{ mb: 2 }}>
+          <Card
+            key={announcement.id}
+            elevation={2}
+            sx={{
+              mb: 2,
+              opacity: announcement.isActive ? 1 : 0.65,
+              border: announcement.isActive ? 'none' : '1px dashed #d32f2f',
+              backgroundColor: announcement.isActive
+                ? 'background.paper'
+                : (theme) => theme.palette.mode === 'dark' ? 'rgba(211, 47, 47, 0.05)' : 'rgba(211, 47, 47, 0.02)',
+            }}
+          >
             <CardContent>
               <Box
                 display="flex"
@@ -138,12 +205,23 @@ const Announcements: React.FC = () => {
                 mb={1}
               >
                 <Box display="flex" alignItems="center" gap={1} minWidth={0} flex="1 1 auto">
-                  <Campaign color="primary" sx={{ flexShrink: 0 }} />
-                  <Typography variant="h6" fontWeight="bold" sx={{ wordBreak: 'break-word' }}>
+                  <Campaign color={announcement.isActive ? 'primary' : 'disabled'} sx={{ flexShrink: 0 }} />
+                  <Typography
+                    variant="h6"
+                    fontWeight="bold"
+                    sx={{
+                      wordBreak: 'break-word',
+                      textDecoration: announcement.isActive ? 'none' : 'line-through',
+                      color: announcement.isActive ? 'text.primary' : 'text.secondary',
+                    }}
+                  >
                     {announcement.title}
                   </Typography>
                 </Box>
                 <Box display="flex" gap={1} alignItems="center" flexWrap="wrap" flexShrink={0}>
+                  {!announcement.isActive && (
+                    <Chip label="Deleted" color="error" size="small" variant="filled" sx={{ fontWeight: 'bold' }} />
+                  )}
                   <Chip
                     label={announcement.priority}
                     color={getPriorityColor(announcement.priority)}
@@ -152,23 +230,41 @@ const Announcements: React.FC = () => {
                   {announcement.isPinned && (
                     <Chip label="Pinned" color="info" size="small" variant="outlined" />
                   )}
-                  {isAdmin && (
-                    <Button
-                      size="small"
-                      variant="text"
-                      onClick={() =>
-                        updateMutation.mutate({
-                          id: announcement.id,
-                          data: { isPinned: !announcement.isPinned },
-                        })
-                      }
-                    >
-                      {announcement.isPinned ? 'Unpin' : 'Pin'}
-                    </Button>
+                  {isAdmin && announcement.isActive && (
+                    <>
+                      <Button
+                        size="small"
+                        variant="text"
+                        onClick={() =>
+                          updateMutation.mutate({
+                            id: announcement.id,
+                            data: { isPinned: !announcement.isPinned },
+                          })
+                        }
+                      >
+                        {announcement.isPinned ? 'Unpin' : 'Pin'}
+                      </Button>
+                      <Tooltip title="Delete announcement">
+                        <IconButton
+                          size="small"
+                          color="error"
+                          onClick={() => setDeleteTarget({ id: announcement.id, title: announcement.title })}
+                        >
+                          <Delete fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    </>
                   )}
                 </Box>
               </Box>
-              <Typography variant="body1" sx={{ mb: 2, whiteSpace: 'pre-wrap' }}>
+              <Typography
+                variant="body1"
+                sx={{
+                  mb: 2,
+                  whiteSpace: 'pre-wrap',
+                  color: announcement.isActive ? 'text.primary' : 'text.secondary',
+                }}
+              >
                 {announcement.content}
               </Typography>
               <Box
@@ -254,6 +350,100 @@ const Announcements: React.FC = () => {
             disabled={createMutation.isPending || !formData.title || !formData.content}
           >
             {createMutation.isPending ? 'Creating...' : 'Create'}
+          </Button>
+        </DialogActions>
+      </ResponsiveDialog>
+
+      {/* Delete Confirmation Dialog */}
+      <ResponsiveDialog
+        open={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle>Delete Announcement</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Are you sure you want to delete <strong>&ldquo;{deleteTarget?.title}&rdquo;</strong>? This action cannot be undone.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteTarget(null)}>Cancel</Button>
+          <Button
+            onClick={() => deleteTarget && deleteMutation.mutate(deleteTarget.id)}
+            color="error"
+            variant="contained"
+            disabled={deleteMutation.isPending}
+          >
+            {deleteMutation.isPending ? 'Deleting...' : 'Delete'}
+          </Button>
+        </DialogActions>
+      </ResponsiveDialog>
+
+      {/* History Dialog */}
+      <ResponsiveDialog
+        open={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <History color="primary" />
+          <Typography variant="h6" fontWeight="bold" component="span" sx={{ flexGrow: 1 }}>
+            Deleted Announcements History
+          </Typography>
+        </DialogTitle>
+        <DialogContent dividers>
+          {historyLoading ? (
+            <Box display="flex" justifyContent="center" p={4}>
+              <CircularProgress />
+            </Box>
+          ) : historyError ? (
+            <Alert severity="error">Failed to load history.</Alert>
+          ) : announcementHistory && announcementHistory.length > 0 ? (
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              {announcementHistory.map((hist) => (
+                <Paper
+                  key={hist.id}
+                  variant="outlined"
+                  sx={{
+                    p: 2.5,
+                    borderRadius: 2,
+                    border: '1px solid',
+                    borderColor: 'divider',
+                    backgroundColor: (theme) => theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.01)',
+                  }}
+                >
+                  <Box display="flex" justifyContent="space-between" alignItems="flex-start" mb={1} flexWrap="wrap" gap={1}>
+                    <Typography variant="subtitle1" fontWeight="bold">
+                      {hist.title}
+                    </Typography>
+                    <Box display="flex" gap={1}>
+                      <Chip label={hist.priority} size="small" />
+                      <Chip label={hist.targetAudience} size="small" variant="outlined" />
+                    </Box>
+                  </Box>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 2, whiteSpace: 'pre-wrap' }}>
+                    {hist.content}
+                  </Typography>
+                  <Box display="flex" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={1} pt={1.5} sx={{ borderTop: '1px solid', borderColor: 'divider' }}>
+                    <Typography variant="caption" color="text.secondary">
+                      Created by <strong>{hist.creatorName}</strong> on {new Date(hist.createdAt).toLocaleString('en-IN')}
+                    </Typography>
+                    <Typography variant="caption" color="error.main" fontWeight="medium">
+                      Deleted by <strong>{hist.deleterName}</strong> on {new Date(hist.deletedAt).toLocaleString('en-IN')}
+                    </Typography>
+                  </Box>
+                </Paper>
+              ))}
+            </Box>
+          ) : (
+            <Alert severity="info">No deleted history available.</Alert>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setHistoryOpen(false)} variant="contained">
+            Close
           </Button>
         </DialogActions>
       </ResponsiveDialog>

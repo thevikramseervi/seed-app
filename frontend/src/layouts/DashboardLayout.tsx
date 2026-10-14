@@ -39,6 +39,7 @@ import {
   Assessment,
   Brightness4,
   Brightness7,
+  Devices,
 } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
 import { useThemeMode } from '../contexts/ThemeModeContext';
@@ -46,6 +47,7 @@ import { useQuery } from '@tanstack/react-query';
 import { notificationsApi } from '../api/notifications';
 import { QUERY_KEYS } from '../queryKeys';
 import ChangePasswordDialog from '../components/ChangePasswordDialog';
+import NotificationsDropdown from '../components/NotificationsDropdown';
 import { Role } from '../types';
 
 const drawerWidthExpanded = 260;
@@ -72,6 +74,7 @@ const navSections: NavSection[] = [
       { title: 'Activity Report', path: '/activity', icon: <DescriptionOutlined /> },
       { title: 'Leave', path: '/leave', icon: <EventAvailable /> },
       { title: 'Salary Slips', path: '/salary-slips', icon: <AccountBalanceWallet /> },
+      { title: 'My Assets', path: '/my-assets', icon: <Devices /> },
     ],
   },
   {
@@ -95,6 +98,12 @@ const navSections: NavSection[] = [
         title: 'Users',
         path: '/users',
         icon: <People />,
+        roles: [Role.LAB_ADMIN, Role.SUPER_ADMIN],
+      },
+      {
+        title: 'Assets',
+        path: '/assets',
+        icon: <Devices />,
         roles: [Role.LAB_ADMIN, Role.SUPER_ADMIN],
       },
       {
@@ -137,6 +146,7 @@ const DashboardLayout: React.FC = () => {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
+  const [notifAnchorEl, setNotifAnchorEl] = useState<null | HTMLElement>(null);
   const [changePasswordOpen, setChangePasswordOpen] = useState(false);
   const { user, logout } = useAuth();
   const { mode, toggleMode } = useThemeMode();
@@ -399,14 +409,18 @@ const DashboardLayout: React.FC = () => {
             <IconButton
               color="inherit"
               sx={{ mr: 1 }}
-              onClick={() => navigate('/notifications')}
+              onClick={(e) => setNotifAnchorEl(e.currentTarget)}
               aria-label="Notifications"
             >
-              <Badge badgeContent={unreadData?.unreadCount ?? 0} color="error">
+              <Badge badgeContent={unreadData?.unreadCount ?? 0} color="error" max={99}>
                 <Notifications />
               </Badge>
             </IconButton>
           </Tooltip>
+          <NotificationsDropdown
+            anchorEl={notifAnchorEl}
+            onClose={() => setNotifAnchorEl(null)}
+          />
 
           <Tooltip title={mode === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}>
             <IconButton

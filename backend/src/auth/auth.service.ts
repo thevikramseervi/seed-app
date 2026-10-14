@@ -85,8 +85,7 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    const isAdmin = this.twoFactorService.isAdminRole(user.role);
-    if (isAdmin && user.twoFactorEnabled) {
+    if (user.twoFactorEnabled) {
       const twoFactorToken = this.jwtService.sign(
         { sub: user.id, purpose: '2fa' },
         { expiresIn: '5m' },
@@ -119,12 +118,9 @@ export class AuthService {
   async setup2fa(userId: string): Promise<{ otpauthUrl: string; secret: string }> {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, email: true, role: true, twoFactorEnabled: true },
+      select: { id: true, email: true, twoFactorEnabled: true },
     });
     if (!user) throw new UnauthorizedException('User not found');
-    if (!this.twoFactorService.isAdminRole(user.role)) {
-      throw new BadRequestException('Two-factor authentication is only available for admins');
-    }
     if (user.twoFactorEnabled) {
       throw new BadRequestException('2FA is already enabled');
     }
@@ -136,12 +132,9 @@ export class AuthService {
   async enable2fa(userId: string, dto: Enable2faDto): Promise<void> {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, role: true, twoFactorEnabled: true },
+      select: { id: true, twoFactorEnabled: true },
     });
     if (!user) throw new UnauthorizedException('User not found');
-    if (!this.twoFactorService.isAdminRole(user.role)) {
-      throw new BadRequestException('Two-factor authentication is only available for admins');
-    }
     if (user.twoFactorEnabled) {
       throw new BadRequestException('2FA is already enabled');
     }
@@ -216,12 +209,9 @@ export class AuthService {
   async disable2fa(userId: string): Promise<void> {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, role: true, twoFactorEnabled: true },
+      select: { id: true, twoFactorEnabled: true },
     });
     if (!user) throw new UnauthorizedException('User not found');
-    if (!this.twoFactorService.isAdminRole(user.role)) {
-      throw new BadRequestException('Two-factor authentication is only available for admins');
-    }
     await this.prisma.user.update({
       where: { id: userId },
       data: { twoFactorEnabled: false, twoFactorSecret: null },
@@ -302,7 +292,9 @@ export class AuthService {
     });
 
     const baseUrl =
-      this.configService.get<string>('FRONTEND_URL') || 'http://localhost:5173';
+      this.configService.get<string>('APP_URL') ||
+      (this.configService.get<string>('FRONTEND_URL') || '').split(',')[0].trim() ||
+      'http://localhost:5173';
     const resetLink = `${baseUrl.replace(/\/$/, '')}/reset-password?token=${rawToken}`;
     await this.emailService.sendPasswordReset(key, resetLink);
 

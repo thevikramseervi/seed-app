@@ -82,7 +82,7 @@ const Landing: React.FC = () => {
                 color: 'transparent',
               }}
             >
-              Attend Ease
+              Seed Lab
             </Typography>
             <Stack direction="row" alignItems="center" spacing={1}>
               <Tooltip title={mode === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}>
@@ -310,7 +310,7 @@ const Landing: React.FC = () => {
             spacing={2}
           >
             <Typography variant="body2" color="text.secondary">
-              Attend Ease – Automated Attendance & Payroll System
+              Seed Lab – Automated Attendance & Payroll System
             </Typography>
             <Button
               size="small"

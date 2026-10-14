@@ -285,7 +285,7 @@ const Profile: React.FC = () => {
           </CardContent>
         </Card>
 
-        {(me.role === Role.LAB_ADMIN || me.role === Role.SUPER_ADMIN) && (
+        {me && (
           <AdminSecurity2faCard
             onMessage={(message, severity) =>
               severity === 'success' ? showSuccess(message) : showError(message)

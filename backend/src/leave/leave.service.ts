@@ -6,6 +6,7 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { EmailService } from '../email/email.service';
 import { ApplyLeaveDto } from './dto/apply-leave.dto';
 import { ReviewLeaveDto } from './dto/review-leave.dto';
 import { LeaveStatus, AttendanceStatus, LeaveType, Role } from '@prisma/client';
@@ -14,7 +15,10 @@ import { toDateOnlyKey } from '../common/date.utils';
 
 @Injectable()
 export class LeaveService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private emailService: EmailService,
+  ) {}
 
   private getUtcMonthBoundsForNow(now: Date = new Date()) {
     const year = now.getUTCFullYear();
@@ -363,7 +367,7 @@ export class LeaveService {
   }
 
   async approveLeave(applicationId: string, reviewedBy: string, reviewLeaveDto?: ReviewLeaveDto) {
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       const reviewer = await tx.user.findUnique({
         where: { id: reviewedBy },
         select: { role: true },
@@ -478,6 +482,7 @@ export class LeaveService {
             select: {
               employeeId: true,
               name: true,
+              email: true,
             },
           },
           reviewer: {
@@ -506,10 +511,22 @@ export class LeaveService {
 
       return updated;
     });
+
+    this.emailService.sendLeaveDecision({
+      to: result!.user.email,
+      employeeName: result!.user.name,
+      status: 'APPROVED',
+      leaveType: result!.leaveType,
+      fromDate: result!.fromDate,
+      toDate: result!.toDate,
+      comments: reviewLeaveDto?.comments,
+    }).catch((err) => console.error('[Leave email] Failed to send approval email:', err));
+
+    return result;
   }
 
   async rejectLeave(applicationId: string, reviewedBy: string, reviewLeaveDto?: ReviewLeaveDto) {
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       const reviewer = await tx.user.findUnique({
         where: { id: reviewedBy },
         select: { role: true },
@@ -579,6 +596,7 @@ export class LeaveService {
             select: {
               employeeId: true,
               name: true,
+              email: true,
             },
           },
           reviewer: {
@@ -607,6 +625,18 @@ export class LeaveService {
 
       return updated;
     });
+
+    this.emailService.sendLeaveDecision({
+      to: result!.user.email,
+      employeeName: result!.user.name,
+      status: 'REJECTED',
+      leaveType: result!.leaveType,
+      fromDate: result!.fromDate,
+      toDate: result!.toDate,
+      comments: reviewLeaveDto?.comments,
+    }).catch((err) => console.error('[Leave email] Failed to send rejection email:', err));
+
+    return result;
   }
 
   async getMyApplications(userId: string, status?: LeaveStatus) {
@@ -735,6 +765,23 @@ export class LeaveService {
       update: {},
     });
 
+    // Compute used CL from attendance records (the true source of truth).
+    // CL days can be created via leave applications OR via direct attendance
+    // marking (admin / biometric sync), so counting attendance rows with
+    // status = CASUAL_LEAVE gives the authoritative "used" count.
+    const yearStart = new Date(Date.UTC(year, 0, 1));
+    const nextYearStart = new Date(Date.UTC(year + 1, 0, 1));
+    const actualUsed = await this.prisma.attendance.count({
+      where: {
+        userId,
+        date: { gte: yearStart, lt: nextYearStart },
+        status: 'CASUAL_LEAVE',
+      },
+    });
+
+    // Pending comes from leave applications (not yet reflected in attendance).
+    const pendingFromApps = leaveBalance.casualLeavePending;
+
     // Compute "available up to current month" dynamically, regardless of stored value.
     const { year: nowYear, monthIndex } = this.getUtcMonthBoundsForNow();
     const accruedUpToNow =
@@ -743,9 +790,20 @@ export class LeaveService {
         : proRataTotal;
     const availableAccrued = this.computeAvailableCl(
       accruedUpToNow,
-      leaveBalance.casualLeaveUsed,
-      leaveBalance.casualLeavePending,
+      actualUsed,
+      pendingFromApps,
     );
+
+    // Keep the cached leave_balance in sync so other code paths stay consistent.
+    if (actualUsed !== leaveBalance.casualLeaveUsed || availableAccrued !== leaveBalance.casualLeaveAvailable) {
+      await this.prisma.leaveBalance.update({
+        where: { userId_year: { userId, year } },
+        data: {
+          casualLeaveUsed: actualUsed,
+          casualLeaveAvailable: availableAccrued,
+        },
+      });
+    }
 
     // Map Prisma model fields to API shape expected by frontend
     return {
@@ -756,8 +814,8 @@ export class LeaveService {
       totalLeaves: proRataTotal,
       // "Till now" / accrued up to the current month (or full entitlement for past years).
       accruedLeaves: accruedUpToNow,
-      usedLeaves: leaveBalance.casualLeaveUsed,
-      pendingLeaves: leaveBalance.casualLeavePending,
+      usedLeaves: actualUsed,
+      pendingLeaves: pendingFromApps,
       availableLeaves: availableAccrued,
     };
   }

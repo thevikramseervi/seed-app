@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
+import ExcelJS from 'exceljs';
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import {
   Box,
@@ -18,14 +19,20 @@ import {
   InputLabel,
   Alert,
   Tooltip,
+  Checkbox,
+  FormControlLabel,
+  Divider,
+  Autocomplete,
   useTheme,
   useMediaQuery,
 } from '@mui/material';
 import PageHeader from '../components/PageHeader';
-import { DataGrid, GridColDef } from '@mui/x-data-grid';
-import { Add, Edit, Block, CheckCircle } from '@mui/icons-material';
+import { DataGrid, GridColDef, GridColumnVisibilityModel } from '@mui/x-data-grid';
+import { Add, Edit, Block, CheckCircle, FileDownload } from '@mui/icons-material';
 import { usersApi } from '../api/users';
-import { User, Role, UserStatus } from '../types';
+import { assetsApi } from '../api/assets';
+import { User, Role, UserStatus, AssetType, Asset } from '../types';
+import { useAuth } from '../contexts/AuthContext';
 import { useSnackbar } from '../contexts/SnackbarContext';
 import { getApiErrorMessage } from '../hooks/apiMessages';
 import PageLoading from '../components/PageLoading';
@@ -36,6 +43,8 @@ import { QUERY_KEYS } from '../queryKeys';
 const Users: React.FC = () => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+  const { user: authUser } = useAuth();
+  const isSuperAdmin = authUser?.role === Role.SUPER_ADMIN;
   const { showSuccess, showError } = useSnackbar();
   const [open, setOpen] = useState(false);
   const [editUser, setEditUser] = useState<User | null>(null);
@@ -61,10 +70,109 @@ const Users: React.FC = () => {
     baseSalary: '22000',
   });
 
+  const ASSET_OPTIONS: { type: AssetType; label: string; prefix: string }[] = [
+    { type: AssetType.LAPTOP,    label: 'Laptop',     prefix: 'LT' },
+    { type: AssetType.MONITOR,   label: 'Monitor',    prefix: 'MN' },
+    { type: AssetType.HDD,       label: 'Hard Disk',  prefix: 'HD' },
+    { type: AssetType.CONNECTOR, label: 'Connector',  prefix: 'CN' },
+  ];
+
+  const emptyAssetSelections = () =>
+    Object.fromEntries(
+      ASSET_OPTIONS.map(({ type }) => [type, { checked: false, assetNumber: '', serialNumber: '' }]),
+    ) as Record<AssetType, { checked: boolean; assetNumber: string; serialNumber: string }>;
+
+  const [assetSelections, setAssetSelections] = useState(emptyAssetSelections);
+
   const [paginationModel, setPaginationModel] = useState({
     page: 0,
     pageSize: 10,
   });
+
+  const [columnVisibilityModel, setColumnVisibilityModel] = useState<GridColumnVisibilityModel>({
+    // Asset columns hidden by default
+    laptopAssetNo:    false,
+    laptopSN:         false,
+    monitorAssetNo:   false,
+    monitorSN:        false,
+    hddAssetNo:       false,
+    hddSN:            false,
+    connectorAssetNo: false,
+    connectorSN:      false,
+  });
+
+  const exportToExcel = async () => {
+    // Fetch all users + all assets for export
+    const [allUsers, allAssets] = await Promise.all([
+      usersApi.getAllPages(),
+      assetsApi.getAll(),
+    ]);
+
+    const exportAssetMap = new Map<string, Asset[]>();
+    for (const a of allAssets) {
+      if (!a.userId) continue;
+      if (!exportAssetMap.has(a.userId)) exportAssetMap.set(a.userId, []);
+      exportAssetMap.get(a.userId)!.push(a);
+    }
+
+    type ExportRow = User & Record<string, string | number>;
+    const rows: ExportRow[] = allUsers.map((u) => {
+      const assets = exportAssetMap.get(u.id) ?? [];
+      const byType = (t: AssetType) => assets.find((a) => a.assetType === t);
+      return {
+        ...u,
+        laptopAssetNo:    byType(AssetType.LAPTOP)?.assetNumber    ?? '',
+        laptopSN:         byType(AssetType.LAPTOP)?.serialNumber   ?? '',
+        monitorAssetNo:   byType(AssetType.MONITOR)?.assetNumber   ?? '',
+        monitorSN:        byType(AssetType.MONITOR)?.serialNumber  ?? '',
+        hddAssetNo:       byType(AssetType.HDD)?.assetNumber       ?? '',
+        hddSN:            byType(AssetType.HDD)?.serialNumber      ?? '',
+        connectorAssetNo: byType(AssetType.CONNECTOR)?.assetNumber ?? '',
+        connectorSN:      byType(AssetType.CONNECTOR)?.serialNumber ?? '',
+      };
+    });
+
+    const allFields: { field: string; header: string; getValue: (u: ExportRow) => string | number }[] = [
+      { field: 'employeeNumber', header: 'Emp No',              getValue: (u) => u.employeeNumber },
+      { field: 'employeeId',     header: 'Employee ID',         getValue: (u) => u.employeeId },
+      { field: 'name',           header: 'Name',                getValue: (u) => u.name },
+      { field: 'email',          header: 'Email',               getValue: (u) => u.email },
+      { field: 'designation',    header: 'Designation',         getValue: (u) => u.designation },
+      { field: 'role',           header: 'Role',                getValue: (u) => (u.role as string).replace('_', ' ') },
+      { field: 'status',         header: 'Status',              getValue: (u) => u.status === UserStatus.ACTIVE ? 'Active' : u.dateOfLeaving ? 'Left Organization' : 'Inactive' },
+      { field: 'baseSalary',     header: 'Base Salary',         getValue: (u) => u.baseSalary },
+      { field: 'dateOfJoining',  header: 'Date of Joining',     getValue: (u) => u.dateOfJoining ? new Date(u.dateOfJoining as string).toLocaleDateString('en-IN') : '-' },
+      { field: 'dateOfLeaving',  header: 'Date of Leaving',     getValue: (u) => u.dateOfLeaving ? new Date(u.dateOfLeaving as string).toLocaleDateString('en-IN') : '-' },
+      // Asset columns
+      { field: 'laptopAssetNo',    header: 'Laptop Asset No',      getValue: (u) => u.laptopAssetNo    as string },
+      { field: 'laptopSN',         header: 'Laptop S/N',           getValue: (u) => u.laptopSN         as string },
+      { field: 'monitorAssetNo',   header: 'Monitor Asset No',     getValue: (u) => u.monitorAssetNo   as string },
+      { field: 'monitorSN',        header: 'Monitor S/N',          getValue: (u) => u.monitorSN        as string },
+      { field: 'hddAssetNo',       header: 'HDD Asset No',         getValue: (u) => u.hddAssetNo       as string },
+      { field: 'hddSN',            header: 'HDD S/N',              getValue: (u) => u.hddSN            as string },
+      { field: 'connectorAssetNo', header: 'Connector Asset No',   getValue: (u) => u.connectorAssetNo as string },
+      { field: 'connectorSN',      header: 'Connector S/N',        getValue: (u) => u.connectorSN      as string },
+    ];
+
+    const visibleFields = allFields.filter((f) => columnVisibilityModel[f.field] !== false);
+
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('Users');
+    ws.columns = visibleFields.map((f) => ({ header: f.header, key: f.field, width: 20 }));
+    ws.getRow(1).font = { bold: true };
+    rows.forEach((u) => {
+      ws.addRow(Object.fromEntries(visibleFields.map((f) => [f.field, f.getValue(u)])));
+    });
+
+    const buffer = await wb.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'users_with_assets.xlsx';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   const {
     data,
@@ -83,9 +191,73 @@ const Users: React.FC = () => {
   const users = data?.data ?? [];
   const totalUsers = data?.meta?.total ?? 0;
 
+  // Fetch all assets to join into grid rows (admin only)
+  const { data: allAssetsData = [] } = useQuery({
+    queryKey: QUERY_KEYS.assets,
+    queryFn: () => assetsApi.getAll(),
+    enabled: isSuperAdmin,
+  });
+
+  // Asset number reference lists for autocomplete dropdowns
+  const { data: assetRefList } = useQuery({
+    queryKey: QUERY_KEYS.assetReferenceList,
+    queryFn: assetsApi.getReferenceList,
+    enabled: isSuperAdmin,
+    staleTime: Infinity,
+  });
+  const laptopOptions = assetRefList?.laptops ?? [];
+  const hddOptions: string[] = [];
+  const monitorOptions = assetRefList?.monitors ?? [];
+
+  const assetsByUserId = useMemo(() => {
+    const map = new Map<string, Asset[]>();
+    for (const a of allAssetsData) {
+      if (!a.userId) continue;
+      if (!map.has(a.userId)) map.set(a.userId, []);
+      map.get(a.userId)!.push(a);
+    }
+    return map;
+  }, [allAssetsData]);
+
+  type EnrichedUser = User & {
+    laptopAssetNo: string; laptopSN: string;
+    monitorAssetNo: string; monitorSN: string;
+    hddAssetNo: string; hddSN: string;
+    connectorAssetNo: string; connectorSN: string;
+  };
+
+  const enrichedUsers: EnrichedUser[] = useMemo(() => users.map((u) => {
+    const assets = assetsByUserId.get(u.id) ?? [];
+    const byType = (t: AssetType) => assets.find((a) => a.assetType === t);
+    return {
+      ...u,
+      laptopAssetNo:    byType(AssetType.LAPTOP)?.assetNumber    ?? '',
+      laptopSN:         byType(AssetType.LAPTOP)?.serialNumber   ?? '',
+      monitorAssetNo:   byType(AssetType.MONITOR)?.assetNumber   ?? '',
+      monitorSN:        byType(AssetType.MONITOR)?.serialNumber  ?? '',
+      hddAssetNo:       byType(AssetType.HDD)?.assetNumber       ?? '',
+      hddSN:            byType(AssetType.HDD)?.serialNumber      ?? '',
+      connectorAssetNo: byType(AssetType.CONNECTOR)?.assetNumber ?? '',
+      connectorSN:      byType(AssetType.CONNECTOR)?.serialNumber ?? '',
+    };
+  }), [users, assetsByUserId]);
+
   const createMutation = useMutation({
     mutationFn: usersApi.create,
-    onSuccess: () => {
+    onSuccess: async (newUser) => {
+      const selected = ASSET_OPTIONS.filter(
+        ({ type }) => assetSelections[type]?.checked && assetSelections[type]?.assetNumber.trim(),
+      );
+      for (const { type, label } of selected) {
+        const { assetNumber, serialNumber } = assetSelections[type];
+        await assetsApi.create({
+          assetName: label,
+          assetType: type,
+          assetNumber: assetNumber.trim(),
+          serialNumber: serialNumber.trim() || undefined,
+          userId: newUser.id,
+        });
+      }
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.users() });
       handleClose();
       showSuccess('User created successfully!');
@@ -134,6 +306,7 @@ const Users: React.FC = () => {
       dateOfLeaving: '',
       baseSalary: '22000',
     });
+    setAssetSelections(emptyAssetSelections());
   };
 
   const handleOpen = (user?: User) => {
@@ -214,6 +387,13 @@ const Users: React.FC = () => {
       const empNum = parseInt(formData.employeeNumber, 10);
       if (!Number.isFinite(empNum) || empNum <= 0) {
         showError('Please enter a valid employee number');
+        return;
+      }
+      const missingAssetNumber = ASSET_OPTIONS.find(
+        ({ type }) => assetSelections[type]?.checked && !assetSelections[type]?.assetNumber.trim(),
+      );
+      if (missingAssetNumber) {
+        showError(`Asset Number is required for ${missingAssetNumber.label}`);
         return;
       }
       createMutation.mutate({
@@ -364,6 +544,15 @@ const Users: React.FC = () => {
           ? new Date(params.value as string).toLocaleDateString('en-IN')
           : '-',
     },
+    // ── Asset columns (hidden by default, toggled via column visibility) ──
+    { field: 'laptopAssetNo',    headerName: 'Laptop Asset No',    width: 150, sortable: false },
+    { field: 'laptopSN',         headerName: 'Laptop S/N',         width: 150, sortable: false },
+    { field: 'monitorAssetNo',   headerName: 'Monitor Asset No',   width: 155, sortable: false },
+    { field: 'monitorSN',        headerName: 'Monitor S/N',        width: 150, sortable: false },
+    { field: 'hddAssetNo',       headerName: 'HDD Asset No',       width: 150, sortable: false },
+    { field: 'hddSN',            headerName: 'HDD S/N',            width: 150, sortable: false },
+    { field: 'connectorAssetNo', headerName: 'Connector Asset No', width: 165, sortable: false },
+    { field: 'connectorSN',      headerName: 'Connector S/N',      width: 150, sortable: false },
   ];
 
   if (isLoading) return <PageLoading />;
@@ -382,9 +571,14 @@ const Users: React.FC = () => {
         title="User Management"
         subtitle="Manage employees and their details"
         actions={
-          <Button variant="contained" startIcon={<Add />} onClick={() => handleOpen()}>
-            Add User
-          </Button>
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            <Button variant="outlined" startIcon={<FileDownload />} onClick={exportToExcel}>
+              Export Excel
+            </Button>
+            <Button variant="contained" startIcon={<Add />} onClick={() => handleOpen()}>
+              Add User
+            </Button>
+          </Box>
         }
       />
 
@@ -530,13 +724,15 @@ const Users: React.FC = () => {
               }}
             >
               <DataGrid
-                rows={users || []}
+                rows={enrichedUsers}
                 columns={columns}
                 pageSizeOptions={[10, 25, 50]}
                 paginationMode="server"
                 rowCount={totalUsers}
                 paginationModel={paginationModel}
                 onPaginationModelChange={setPaginationModel}
+                columnVisibilityModel={columnVisibilityModel}
+                onColumnVisibilityModelChange={setColumnVisibilityModel}
                 disableRowSelectionOnClick
                 columnHeaderHeight={44}
                 rowHeight={44}
@@ -639,6 +835,139 @@ const Users: React.FC = () => {
                 onChange={(e) => setFormData({ ...formData, baseSalary: e.target.value })}
               />
             </Box>
+
+            {/* ── Asset selection (create only) ── */}
+            {!editUser && (
+              <Box sx={{ mt: 3 }}>
+                <Divider sx={{ mb: 2 }} />
+                <Typography variant="subtitle2" fontWeight={700} gutterBottom>
+                  Assign Assets{' '}
+                  <Typography component="span" variant="caption" color="text.secondary">
+                    (Optional)
+                  </Typography>
+                </Typography>
+
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, mt: 1 }}>
+                  {ASSET_OPTIONS.map(({ type, label }) => {
+                    const sel = assetSelections[type];
+                    const assetNumberOptions =
+                      type === AssetType.LAPTOP ? laptopOptions :
+                      type === AssetType.HDD    ? hddOptions    :
+                      type === AssetType.MONITOR ? monitorOptions : null;
+                    return (
+                      <Box
+                        key={type}
+                        sx={{
+                          borderRadius: 2,
+                          border: '1px solid',
+                          borderColor: sel?.checked ? 'primary.main' : 'divider',
+                          overflow: 'hidden',
+                          transition: 'border-color 0.15s',
+                        }}
+                      >
+                        {/* Checkbox row */}
+                        <Box
+                          sx={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            px: 1.5,
+                            py: 0.75,
+                            bgcolor: sel?.checked ? 'action.selected' : 'transparent',
+                            transition: 'background-color 0.15s',
+                          }}
+                        >
+                          <FormControlLabel
+                            sx={{ m: 0, flex: 1 }}
+                            control={
+                              <Checkbox
+                                size="small"
+                                checked={sel?.checked ?? false}
+                                onChange={(e) =>
+                                  setAssetSelections((prev) => ({
+                                    ...prev,
+                                    [type]: { ...prev[type], checked: e.target.checked },
+                                  }))
+                                }
+                              />
+                            }
+                            label={
+                              <Typography variant="body2" fontWeight={600}>
+                                {label}
+                              </Typography>
+                            }
+                          />
+                        </Box>
+
+                        {/* Asset Number + S/N fields — visible when checked */}
+                        {sel?.checked && (
+                          <Box
+                            sx={{
+                              display: 'grid',
+                              gridTemplateColumns: '1fr 1fr',
+                              gap: 1.5,
+                              px: 1.5,
+                              pb: 1.5,
+                              pt: 1,
+                              borderTop: '1px solid',
+                              borderColor: 'divider',
+                            }}
+                          >
+                            {assetNumberOptions ? (
+                              <Autocomplete
+                                size="small"
+                                options={assetNumberOptions}
+                                value={sel.assetNumber || null}
+                                onChange={(_e, newVal) =>
+                                  setAssetSelections((prev) => ({
+                                    ...prev,
+                                    [type]: { ...prev[type], assetNumber: newVal ?? '' },
+                                  }))
+                                }
+                                onInputChange={(_e, newVal) =>
+                                  setAssetSelections((prev) => ({
+                                    ...prev,
+                                    [type]: { ...prev[type], assetNumber: newVal },
+                                  }))
+                                }
+                                freeSolo
+                                renderInput={(params) => (
+                                  <TextField {...params} label="Asset Number" required />
+                                )}
+                              />
+                            ) : (
+                              <TextField
+                                label="Asset Number"
+                                size="small"
+                                value={sel.assetNumber}
+                                onChange={(e) =>
+                                  setAssetSelections((prev) => ({
+                                    ...prev,
+                                    [type]: { ...prev[type], assetNumber: e.target.value },
+                                  }))
+                                }
+                                required
+                              />
+                            )}
+                            <TextField
+                              label="Serial Number"
+                              size="small"
+                              value={sel.serialNumber}
+                              onChange={(e) =>
+                                setAssetSelections((prev) => ({
+                                  ...prev,
+                                  [type]: { ...prev[type], serialNumber: e.target.value },
+                                }))
+                              }
+                              placeholder="Optional"
+                            />
+                          </Box>
+                        )}
+                      </Box>
+                    );
+                  })}
+                </Box>
+              </Box>
+            )}
           </Box>
         </DialogContent>
         <DialogActions>

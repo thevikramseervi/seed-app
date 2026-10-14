@@ -167,7 +167,7 @@ const Login: React.FC = () => {
           >
             <Box
               component="img"
-              src="/seed_logo_svg.png"
+              src="/seed_logo_v2.svg"
               alt="SEED LAB"
               sx={{
                 width: '100%',

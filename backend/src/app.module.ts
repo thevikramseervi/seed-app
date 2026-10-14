@@ -14,6 +14,7 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { BiometricModule } from './biometric/biometric.module';
 import { HealthModule } from './health/health.module';
 import { ActivityModule } from './activity/activity.module';
+import { AssetsModule } from './assets/assets.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 
@@ -33,6 +34,7 @@ import { AppService } from './app.service';
     LeaveModule,
     PayrollModule,
     ActivityModule,
+    AssetsModule,
     AnnouncementsModule,
     NotificationsModule,
     BiometricModule,

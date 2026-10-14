@@ -1,0 +1,15 @@
+network:
+  version: 2
+  renderer: NetworkManager
+  ethernets:
+    enp4s0f2:
+      dhcp4: no
+      addresses:
+        - 130.1.35.63/16
+      routes:
+        - to: default
+          via: 130.1.1.2
+      nameservers:
+        addresses:
+          - 8.8.8.8
+          - 8.8.4.4

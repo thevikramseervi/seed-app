@@ -20,12 +20,12 @@ import {
   useTheme,
 } from '@mui/material';
 import { Download } from '@mui/icons-material';
+import ExcelJS from 'exceljs';
 import { attendanceApi } from '../../api/attendance';
 import { Attendance, AttendanceStatus, Role } from '../../types';
 import type { User } from '../../types';
 import { QUERY_KEYS } from '../../queryKeys';
 import { formatTime, formatDuration } from '../../utils/format';
-import { downloadExcel } from '../../utils/excel';
 import ResponsiveDialog from '../../components/ResponsiveDialog';
 import ResponsiveTable from '../../components/ResponsiveTable';
 import { useAuth } from '../../contexts/AuthContext';
@@ -66,6 +66,8 @@ const AttendanceReportTab: React.FC<AttendanceReportTabProps> = ({
   });
   const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
   const [selectedUserId, setSelectedUserId] = useState('');
+
+  const [statusFilter, setStatusFilter] = useState<AttendanceStatus | 'WEEKEND_HOLIDAY' | null>(null);
 
   const [editDialog, setEditDialog] = useState<{
     open: boolean;
@@ -137,21 +139,190 @@ const AttendanceReportTab: React.FC<AttendanceReportTabProps> = ({
     return s;
   }, [data]);
 
-  const handleExport = () => {
+  const filteredData = React.useMemo(() => {
+    if (!data || !statusFilter) return data;
+    if (statusFilter === 'WEEKEND_HOLIDAY')
+      return data.filter((r) => r.status === AttendanceStatus.WEEKEND || r.status === AttendanceStatus.HOLIDAY);
+    return data.filter((r) => r.status === statusFilter);
+  }, [data, statusFilter]);
+
+  const STATUS_ABBREV: Record<AttendanceStatus, string> = {
+    [AttendanceStatus.PRESENT]:      'P',
+    [AttendanceStatus.ABSENT]:       'A',
+    [AttendanceStatus.HALF_DAY]:     'HD',
+    [AttendanceStatus.HOLIDAY]:      'H',
+    [AttendanceStatus.WEEKEND]:      'W',
+    [AttendanceStatus.CASUAL_LEAVE]: 'CL',
+    [AttendanceStatus.NO_PUNCH]:     'NP',
+  };
+
+  const STATUS_COLOR: Partial<Record<AttendanceStatus, string>> = {
+    [AttendanceStatus.HOLIDAY]:      'FF0070C0', // blue
+    [AttendanceStatus.WEEKEND]:      'FF808080', // grey
+    [AttendanceStatus.ABSENT]:       'FFFF0000', // red
+    [AttendanceStatus.NO_PUNCH]:     'FFFF0000', // red
+    [AttendanceStatus.CASUAL_LEAVE]: 'FFFF9900', // orange
+    [AttendanceStatus.HALF_DAY]:     'FFCC6600', // amber
+  };
+
+  const handleExport = async () => {
     if (!data?.length) return;
-    downloadExcel(
-      `Attendance_Report_${startDate}_to_${endDate}.xlsx`,
-      [
-        { header: 'Employee ID', value: (r: AttendanceReportRow) => r.user?.employeeId ?? 'N/A' },
-        { header: 'Employee Name', value: (r) => r.user?.name ?? 'N/A' },
-        { header: 'Date', value: (r) => new Date(r.date).toLocaleDateString('en-IN') },
-        { header: 'Status', value: (r) => r.status },
-        { header: 'First In', value: (r) => (r.firstInTime ? formatTime(r.firstInTime) : '-') },
-        { header: 'Last Out', value: (r) => (r.lastOutTime ? formatTime(r.lastOutTime) : '-') },
-        { header: 'Duration (H:MM)', value: (r) => formatDuration(r.totalDuration) },
-      ],
-      data,
-    );
+
+    // 1. Group records by userId, preserving per-day status
+    const grouped = new Map<string, Map<string, AttendanceReportRow>>();
+    for (const record of data) {
+      if (!grouped.has(record.userId)) grouped.set(record.userId, new Map());
+      grouped.get(record.userId)!.set(record.date.slice(0, 10), record);
+    }
+
+    // 2. Generate ALL dates in the selected range (fills weekend gaps).
+    // Use local calendar components — Date#toISOString() is UTC and would
+    // shift IST midnight back one day (1 Jul–31 Jul → 30 Jun–30 Jul).
+    const dates: string[] = [];
+    const [sy, sm, sd] = startDate.split('-').map(Number);
+    const [ey, em, ed] = endDate.split('-').map(Number);
+    const cur = new Date(sy, sm - 1, sd);
+    const rangeEnd = new Date(ey, em - 1, ed);
+    while (cur <= rangeEnd) {
+      dates.push(
+        `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}-${String(cur.getDate()).padStart(2, '0')}`,
+      );
+      cur.setDate(cur.getDate() + 1);
+    }
+
+    // 3. Sort employees by employeeId
+    const sortedEntries = Array.from(grouped.entries()).sort(([, aMap], [, bMap]) => {
+      const a = aMap.values().next().value?.user?.employeeId ?? '';
+      const b = bMap.values().next().value?.user?.employeeId ?? '';
+      return a.localeCompare(b);
+    });
+
+    // 4. Build workbook
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet('Attendance Report');
+
+    const FIXED_HEADERS = [
+      'Sl No', 'DOJ', 'DOL', 'Bio IDs', 'Employee IDs',
+      'Names', 'Designation', 'WD', 'H', 'P', 'HD', 'A(lop)', 'CL', 'Total Pay Days',
+    ];
+    const dateHeaders = dates.map((d) => {
+      const [y, m, day] = d.split('-');
+      return `${day}-${m}-${y}`;
+    });
+
+    // Header row
+    const headerRow = sheet.addRow([...FIXED_HEADERS, ...dateHeaders]);
+    headerRow.eachCell((cell) => {
+      cell.font = { bold: true, size: 10 };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9E1F2' } };
+      cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+      cell.border = {
+        top: { style: 'thin' }, bottom: { style: 'thin' },
+        left: { style: 'thin' }, right: { style: 'thin' },
+      };
+    });
+    sheet.getRow(1).height = 30;
+
+    // 5. Data rows
+    let slNo = 1;
+    for (const [userId, dayMap] of sortedEntries) {
+      const userInfo = users?.find((u) => u.id === userId);
+      const records = Array.from(dayMap.values());
+      const firstRecord = records[0];
+
+      let wd = 0, h = 0, p = 0, hd = 0, absent = 0, cl = 0;
+      for (const r of records) {
+        switch (r.status) {
+          case AttendanceStatus.PRESENT:      p++;      break;
+          case AttendanceStatus.ABSENT:       absent++; break;
+          case AttendanceStatus.HALF_DAY:     hd += 0.5; break;
+          case AttendanceStatus.HOLIDAY:      h++;      break;
+          case AttendanceStatus.WEEKEND:      wd++;     break;
+          case AttendanceStatus.CASUAL_LEAVE: cl++;     break;
+          case AttendanceStatus.NO_PUNCH:     absent++; break;
+        }
+      }
+      const totalPayDays = p + hd + cl + h + wd;
+
+      const rowValues: (string | number)[] = [
+        slNo++,
+        userInfo?.dateOfJoining
+          ? new Date(userInfo.dateOfJoining).toLocaleDateString('en-IN')
+          : '',
+        userInfo?.dateOfLeaving
+          ? new Date(userInfo.dateOfLeaving).toLocaleDateString('en-IN')
+          : '',
+        firstRecord.user?.employeeNumber ?? '',
+        firstRecord.user?.employeeId ?? '',
+        firstRecord.user?.name ?? '',
+        firstRecord.user?.designation ?? '',
+        wd, h, p, hd, absent, cl, totalPayDays,
+        ...dates.map((d) => {
+          const r = dayMap.get(d);
+          if (r) return STATUS_ABBREV[r.status];
+          const dow = new Date(d + 'T00:00:00').getDay();
+          return (dow === 0 || dow === 6) ? 'W' : '';
+        }),
+      ];
+
+      const row = sheet.addRow(rowValues);
+      row.height = 18;
+
+      // Style fixed cells
+      for (let c = 1; c <= FIXED_HEADERS.length; c++) {
+        const cell = row.getCell(c);
+        cell.font = { size: 10 };
+        cell.alignment = { horizontal: 'center', vertical: 'middle' };
+        cell.border = {
+          top: { style: 'thin' }, bottom: { style: 'thin' },
+          left: { style: 'thin' }, right: { style: 'thin' },
+        };
+      }
+
+      // Style per-date cells with status colour
+      dates.forEach((d, idx) => {
+        const cell = row.getCell(FIXED_HEADERS.length + idx + 1);
+        const r = dayMap.get(d);
+        const dow = new Date(d + 'T00:00:00').getDay();
+        const isAutoWeekend = !r && (dow === 0 || dow === 6);
+        cell.font = {
+          size: 10,
+          bold: false,
+          color: r && STATUS_COLOR[r.status]
+            ? { argb: STATUS_COLOR[r.status] }
+            : isAutoWeekend
+              ? { argb: 'FF808080' }
+              : { argb: 'FF000000' },
+        };
+        cell.alignment = { horizontal: 'center', vertical: 'middle' };
+        cell.border = {
+          top: { style: 'thin' }, bottom: { style: 'thin' },
+          left: { style: 'thin' }, right: { style: 'thin' },
+        };
+      });
+    }
+
+    // 6. Column widths
+    sheet.columns.forEach((col, idx) => {
+      col.width = idx < FIXED_HEADERS.length ? 14 : 10;
+    });
+    // Name column wider
+    sheet.getColumn(6).width = 20;
+
+    // 7. Freeze header row and first 7 columns
+    sheet.views = [{ state: 'frozen', xSplit: FIXED_HEADERS.length, ySplit: 1 }];
+
+    // 8. Download
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `Attendance_Report_${startDate}_to_${endDate}.xlsx`;
+    link.click();
+    URL.revokeObjectURL(url);
   };
 
   const isSuperAdmin = authUser?.role === Role.SUPER_ADMIN;
@@ -200,25 +371,40 @@ const AttendanceReportTab: React.FC<AttendanceReportTabProps> = ({
           <Typography variant="h6" gutterBottom>Summary</Typography>
           <Grid container spacing={2}>
             {[
-              { label: 'Total Records', value: summary.total, color: 'primary', bg: isDark ? 'background.paper' : 'grey.100' },
-              { label: 'Present', value: summary.present, color: 'success.main', bg: isDark ? 'rgba(34,197,94,0.1)' : 'success.50' },
-              { label: 'Absent', value: summary.absent, color: 'error.main', bg: isDark ? 'rgba(239,68,68,0.12)' : 'error.50' },
-              { label: 'Half Day', value: summary.halfDay, color: 'warning.main', bg: isDark ? 'rgba(251,191,36,0.12)' : 'warning.50' },
-              { label: 'Casual Leave', value: summary.casualLeave, color: 'info.main', bg: isDark ? 'rgba(59,130,246,0.12)' : 'info.50' },
-              { label: 'Weekend/Holiday', value: summary.weekend + summary.holiday, color: 'text.primary', bg: isDark ? 'background.paper' : 'grey.100' },
-            ].map((s) => (
-              <Grid key={s.label} size={{ xs: 6, sm: 4, md: 2 }}>
-                <Paper elevation={0} sx={{ p: { xs: 1, sm: 2 }, textAlign: 'center', bgcolor: s.bg }}>
-                  <Typography
-                    color={s.color}
-                    sx={{ fontSize: { xs: '1.5rem', sm: '2.125rem' }, fontWeight: 700, lineHeight: 1.2 }}
+              { label: 'Total Records', value: summary.total, color: 'primary', bg: isDark ? 'background.paper' : 'grey.100', filter: null },
+              { label: 'Present', value: summary.present, color: 'success.main', bg: isDark ? 'rgba(34,197,94,0.1)' : 'success.50', filter: AttendanceStatus.PRESENT },
+              { label: 'Absent', value: summary.absent, color: 'error.main', bg: isDark ? 'rgba(239,68,68,0.12)' : 'error.50', filter: AttendanceStatus.ABSENT },
+              { label: 'Half Day', value: summary.halfDay, color: 'warning.main', bg: isDark ? 'rgba(251,191,36,0.12)' : 'warning.50', filter: AttendanceStatus.HALF_DAY },
+              { label: 'Casual Leave', value: summary.casualLeave, color: 'info.main', bg: isDark ? 'rgba(59,130,246,0.12)' : 'info.50', filter: AttendanceStatus.CASUAL_LEAVE },
+              { label: 'Weekend/Holiday', value: summary.weekend + summary.holiday, color: 'text.primary', bg: isDark ? 'background.paper' : 'grey.100', filter: 'WEEKEND_HOLIDAY' },
+            ].map((s) => {
+              const isActive = statusFilter === s.filter;
+              return (
+                <Grid key={s.label} size={{ xs: 6, sm: 4, md: 2 }}>
+                  <Paper
+                    elevation={isActive ? 3 : 0}
+                    onClick={() => setStatusFilter(isActive ? null : s.filter as AttendanceStatus | 'WEEKEND_HOLIDAY' | null)}
+                    sx={{
+                      p: { xs: 1, sm: 2 }, textAlign: 'center', bgcolor: s.bg,
+                      cursor: 'pointer',
+                      border: isActive ? '2px solid' : '2px solid transparent',
+                      borderColor: isActive ? s.color : 'transparent',
+                      borderRadius: 2,
+                      transition: 'all 0.15s',
+                      '&:hover': { elevation: 2, transform: 'translateY(-2px)', boxShadow: 3 },
+                    }}
                   >
-                    {s.value}
-                  </Typography>
-                  <Typography variant="caption" sx={{ display: 'block', mt: 0.25 }}>{s.label}</Typography>
-                </Paper>
-              </Grid>
-            ))}
+                    <Typography
+                      color={s.color}
+                      sx={{ fontSize: { xs: '1.5rem', sm: '2.125rem' }, fontWeight: 700, lineHeight: 1.2 }}
+                    >
+                      {s.value}
+                    </Typography>
+                    <Typography variant="caption" sx={{ display: 'block', mt: 0.25 }}>{s.label}</Typography>
+                  </Paper>
+                </Grid>
+              );
+            })}
           </Grid>
         </Box>
       )}
@@ -233,7 +419,9 @@ const AttendanceReportTab: React.FC<AttendanceReportTabProps> = ({
             gap={1}
             mb={2}
           >
-            <Typography variant="h6">Attendance Records ({data.length})</Typography>
+            <Typography variant="h6">
+              Attendance Records ({filteredData?.length ?? 0}{statusFilter ? ` of ${data.length}` : ''})
+            </Typography>
             <Box display="flex" gap={1} flexWrap="wrap">
               {isSuperAdmin && (
                 <Button variant="contained" onClick={() => setCreateDialog((p) => ({ ...p, open: true }))}>
@@ -246,7 +434,7 @@ const AttendanceReportTab: React.FC<AttendanceReportTabProps> = ({
             </Box>
           </Box>
           <ResponsiveTable
-            rows={data}
+            rows={filteredData ?? []}
             rowKey={(r) => r.id}
             maxHeight={500}
             columns={[

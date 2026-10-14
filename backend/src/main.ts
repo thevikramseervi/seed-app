@@ -69,10 +69,10 @@ async function bootstrap() {
     logger.log(`API Documentation: http://localhost:${process.env.PORT || 3000}/api/docs`);
   }
 
-  const port = process.env.PORT || 3000;
-  await app.listen(port);
+  const port = Number(process.env.PORT || 3000);
+  await app.listen(port, '0.0.0.0');
 
-  logger.log(`Application is running on port ${port}`);
+  logger.log(`Application is running on 0.0.0.0:${port}`);
 }
 
 bootstrap();

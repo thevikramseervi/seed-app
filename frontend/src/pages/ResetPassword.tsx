@@ -129,7 +129,7 @@ const ResetPassword: React.FC = () => {
                   color: 'transparent',
                 }}
               >
-                Attend Ease
+                Seed Lab
               </Typography>
               <Typography variant="body1" color="text.secondary">
                 Set a new password

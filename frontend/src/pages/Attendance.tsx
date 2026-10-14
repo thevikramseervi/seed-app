@@ -76,6 +76,7 @@ const STATUS_COLOR: Record<AttendanceStatus, 'default' | 'error' | 'warning' | '
   [AttendanceStatus.CASUAL_LEAVE]: 'info',
   [AttendanceStatus.WEEKEND]: 'default',
   [AttendanceStatus.HOLIDAY]: 'primary',
+  [AttendanceStatus.NO_PUNCH]: 'default',
 };
 
 const STATUS_SHORT: Record<AttendanceStatus, string> = {
@@ -85,6 +86,7 @@ const STATUS_SHORT: Record<AttendanceStatus, string> = {
   [AttendanceStatus.CASUAL_LEAVE]: 'CL',
   [AttendanceStatus.WEEKEND]: 'W',
   [AttendanceStatus.HOLIDAY]: 'Hol',
+  [AttendanceStatus.NO_PUNCH]: '-',
 };
 
 const getCellBg = (
@@ -100,6 +102,7 @@ const getCellBg = (
     case AttendanceStatus.CASUAL_LEAVE: return isDark ? 'info.dark'    : 'info.light';
     case AttendanceStatus.HOLIDAY:      return isDark ? 'primary.dark' : 'primary.light';
     case AttendanceStatus.WEEKEND:      return isDark ? '#1E293B'      : '#E2E8F0';
+    case AttendanceStatus.NO_PUNCH:     return isDark ? 'grey.800'     : 'grey.100';
     default:                            return isDark ? 'grey.800'     : 'grey.100';
   }
 };

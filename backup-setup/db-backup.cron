@@ -1,0 +1,5 @@
+# Daily database backup to remote share at 23:59
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
+
+59 23 * * * root /usr/local/bin/db-backup-remote.sh >> /var/log/db-backup.log 2>&1

@@ -7,6 +7,18 @@ export const announcementsApi = {
     return data;
   },
 
+  getAllAdmin: async (includeInactive = false): Promise<Announcement[]> => {
+    const { data } = await api.get<Announcement[]>('/announcements/all', {
+      params: { includeInactive },
+    });
+    return data;
+  },
+
+  getHistory: async (): Promise<any[]> => {
+    const { data } = await api.get<any[]>('/announcements/history');
+    return data;
+  },
+
   getUnreadCount: async (): Promise<{ unreadCount: number }> => {
     const { data } = await api.get('/announcements/unread-count');
     return data;

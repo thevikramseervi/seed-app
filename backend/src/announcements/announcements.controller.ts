@@ -63,6 +63,14 @@ export class AnnouncementsController {
     return this.announcementsService.getUnreadCount(user.id);
   }
 
+  @Get('history')
+  @Roles(Role.LAB_ADMIN, Role.SUPER_ADMIN)
+  @ApiOperation({ summary: 'Get deleted announcements history (Admin only)' })
+  @ApiResponse({ status: 200, description: 'Deleted announcements history retrieved successfully' })
+  getHistory() {
+    return this.announcementsService.getHistory();
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Get announcement by ID' })
   @ApiResponse({ status: 200, description: 'Announcement retrieved successfully' })
@@ -88,8 +96,8 @@ export class AnnouncementsController {
   @ApiOperation({ summary: 'Delete announcement (Admin only)' })
   @ApiResponse({ status: 200, description: 'Announcement deleted successfully' })
   @ApiResponse({ status: 404, description: 'Announcement not found' })
-  remove(@Param('id') id: string) {
-    return this.announcementsService.remove(id);
+  remove(@Param('id') id: string, @CurrentUser() user: JwtUser) {
+    return this.announcementsService.remove(id, user.id);
   }
 
   @Post(':id/mark-read')

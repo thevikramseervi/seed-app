@@ -474,7 +474,10 @@ export class BiometricImportService {
         existingAttendance.map((a) => `${a.userId}_${a.date.toISOString().slice(0, 10)}`),
       );
 
-      // Create ABSENT records for missing working days
+      // Create ABSENT records for past missing working days; skip future dates
+      const todayUtc = new Date();
+      todayUtc.setUTCHours(0, 0, 0, 0);
+
       const absentRecords: Array<{
         userId: string;
         date: Date;
@@ -484,6 +487,7 @@ export class BiometricImportService {
       }> = [];
       for (const userId of allActiveUserIds) {
         for (const day of workingDays) {
+          if (day >= todayUtc) continue; // skip today & future dates — biometric uploaded next day
           const key = `${userId}_${day.toISOString().slice(0, 10)}`;
           if (!existingKeys.has(key)) {
             absentRecords.push({
@@ -570,11 +574,14 @@ export class BiometricImportService {
               fromDate: { lt: nextMonthStart },
               toDate: { gte: monthStart },
             },
-            select: { id: true, fromDate: true, toDate: true, totalDays: true },
+            select: { id: true, fromDate: true, toDate: true, totalDays: true, status: true },
           });
 
-          // Recompute each application's effective CL days from attendance rows.
+          // Recompute each APPROVED application's effective CL days from attendance rows.
+          // PENDING applications are skipped because they don't have attendance records yet
+          // (attendance is only created upon approval), so counting would yield 0.
           for (const app of applications) {
+            if (app.status !== LeaveStatus.APPROVED) continue;
             const effectiveDays = await tx.attendance.count({
               where: {
                 userId,
@@ -591,22 +598,28 @@ export class BiometricImportService {
             }
           }
 
-          // Recompute yearly used + pending from applications (post-adjustment).
+          // Recompute yearly used from attendance records (the true source of truth).
+          // CL days can come from leave applications AND direct attendance marking,
+          // so counting attendance rows with status = CASUAL_LEAVE is authoritative.
+          const usedFromAttendance = await tx.attendance.count({
+            where: {
+              userId,
+              date: { gte: yearStart, lt: nextYearStart },
+              status: 'CASUAL_LEAVE',
+            },
+          });
+
+          // Pending comes from leave applications not yet reflected in attendance.
           const yearApps = await tx.leaveApplication.findMany({
             where: {
               userId,
               leaveType: LeaveType.CASUAL_LEAVE,
-              status: { in: [LeaveStatus.PENDING, LeaveStatus.APPROVED] },
+              status: LeaveStatus.PENDING,
               fromDate: { gte: yearStart, lt: nextYearStart },
             },
-            select: { totalDays: true, status: true },
+            select: { totalDays: true },
           });
-          const used = yearApps
-            .filter((a) => a.status === LeaveStatus.APPROVED)
-            .reduce((sum, a) => sum + (a.totalDays ?? 0), 0);
-          const pending = yearApps
-            .filter((a) => a.status === LeaveStatus.PENDING)
-            .reduce((sum, a) => sum + (a.totalDays ?? 0), 0);
+          const pending = yearApps.reduce((sum, a) => sum + (a.totalDays ?? 0), 0);
 
           const user = await tx.user.findUnique({
             where: { id: userId },
@@ -618,7 +631,8 @@ export class BiometricImportService {
             nowYear === year
               ? getAccruedCasualLeaveUpToMonth(doj, year, monthIndexNow)
               : proRataTotal;
-          const available = this.computeAvailableCl(accrued, used, pending);
+
+          const finalAvailable = this.computeAvailableCl(accrued, usedFromAttendance, pending);
 
           await tx.leaveBalance.upsert({
             where: { userId_year: { userId, year } },
@@ -626,15 +640,15 @@ export class BiometricImportService {
               userId,
               year,
               casualLeaveTotal: proRataTotal,
-              casualLeaveUsed: used,
+              casualLeaveUsed: usedFromAttendance,
               casualLeavePending: pending,
-              casualLeaveAvailable: available,
+              casualLeaveAvailable: finalAvailable,
             },
             update: {
               casualLeaveTotal: proRataTotal,
-              casualLeaveUsed: used,
+              casualLeaveUsed: usedFromAttendance,
               casualLeavePending: pending,
-              casualLeaveAvailable: available,
+              casualLeaveAvailable: finalAvailable,
             },
           });
         },

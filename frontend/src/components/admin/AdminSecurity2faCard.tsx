@@ -59,7 +59,7 @@ const AdminSecurity2faCard: React.FC<AdminSecurity2faCardProps> = ({ onMessage }
             <Security sx={{ fontSize: 40, color: 'secondary.main', mr: 2 }} />
             <Box>
               <Typography variant="h6" fontWeight="bold">Two-Factor Authentication</Typography>
-              <Typography variant="body2" color="text.secondary">Add an extra layer of security for admin sign-in (e.g. Google Authenticator)</Typography>
+              <Typography variant="body2" color="text.secondary">Add an extra layer of security to your account (e.g. Google Authenticator)</Typography>
             </Box>
           </Box>
           <Divider sx={{ my: 2 }} />

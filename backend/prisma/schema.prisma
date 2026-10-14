@@ -29,6 +29,7 @@ enum AttendanceStatus {
   CASUAL_LEAVE
   WEEKEND
   HOLIDAY
+  NO_PUNCH
 }
 
 enum LeaveType {
@@ -47,6 +48,21 @@ enum PaymentStatus {
   DRAFT
   PROCESSED
   PAID
+}
+
+enum AssetType {
+  LAPTOP
+  MONITOR
+  HDD
+  CONNECTOR
+  OTHER
+}
+
+enum AssetAction {
+  ASSIGNED
+  RETURNED
+  REASSIGNED
+  DELETED
 }
 
 enum AnnouncementPriority {
@@ -95,6 +111,7 @@ model User {
   activities        ActivityEntry[]
   createdActivities ActivityEntry[] @relation("activity_creator")
   notifications     Notification[]
+  assets            Asset[]
 
   @@map("users")
 }
@@ -285,6 +302,21 @@ model Announcement {
   @@map("announcements")
 }
 
+model AnnouncementHistory {
+  id             String                @id @default(uuid())
+  originalId     String                @map("original_id")
+  title          String
+  content        String
+  priority       AnnouncementPriority  @default(MEDIUM)
+  targetAudience TargetAudience        @default(ALL) @map("target_audience")
+  createdBy      String                @map("created_by")
+  deletedBy      String                @map("deleted_by")
+  createdAt      DateTime              @map("created_at")
+  deletedAt      DateTime              @default(now()) @map("deleted_at")
+
+  @@map("announcement_histories")
+}
+
 model AnnouncementRead {
   id             String       @id @default(uuid())
   announcementId String       @map("announcement_id")
@@ -297,6 +329,43 @@ model AnnouncementRead {
   @@unique([announcementId, userId])
   @@index([userId])
   @@map("announcement_reads")
+}
+
+model Asset {
+  id           String    @id @default(uuid())
+  assetName    String    @map("asset_name")
+  assetType    AssetType @map("asset_type")
+  assetNumber  String    @unique @map("asset_number")
+  serialNumber String?   @map("serial_number")
+  userId       String?   @map("user_id")
+  user         User?     @relation(fields: [userId], references: [id])
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@map("assets")
+}
+
+model AssetHistory {
+  id              String      @id @default(uuid())
+  assetId         String      @map("asset_id")
+  assetNumber     String      @map("asset_number")
+  assetName       String      @map("asset_name")
+  assetType       AssetType   @map("asset_type")
+  serialNumber    String?     @map("serial_number")
+  userId          String?     @map("user_id")
+  employeeName    String?     @map("employee_name")
+  employeeId      String?     @map("employee_id")
+  action          AssetAction
+  performedBy     String      @map("performed_by")
+  performedByName String      @map("performed_by_name")
+  remarks         String?
+  createdAt       DateTime    @default(now()) @map("created_at")
+
+  @@index([assetId])
+  @@index([userId])
+  @@index([createdAt])
+  @@map("asset_histories")
 }
 
 model Notification {

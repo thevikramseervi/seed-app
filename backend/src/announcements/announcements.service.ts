@@ -1,11 +1,15 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { EmailService } from '../email/email.service';
 import { CreateAnnouncementDto } from './dto/create-announcement.dto';
 import { UpdateAnnouncementDto } from './dto/update-announcement.dto';
 
 @Injectable()
 export class AnnouncementsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private emailService: EmailService,
+  ) {}
 
   async create(createAnnouncementDto: CreateAnnouncementDto, createdBy: string) {
     const data: any = {
@@ -22,7 +26,7 @@ export class AnnouncementsService {
       data.expiresAt = new Date(createAnnouncementDto.expiresAt);
     }
 
-    return this.prisma.announcement.create({
+    const announcement = await this.prisma.announcement.create({
       data,
       include: {
         creator: {
@@ -33,6 +37,65 @@ export class AnnouncementsService {
         },
       },
     });
+
+    // Build user filter for audience
+    const audienceWhere = this.buildAudienceWhere(createAnnouncementDto.targetAudience || 'ALL');
+
+    // Fetch target users for in-app notifications + emails (fire-and-forget)
+    this.prisma.user
+      .findMany({ where: { status: 'ACTIVE', ...audienceWhere }, select: { id: true, name: true, email: true } })
+      .then(async (users) => {
+        console.log(`[Announcement] Sending to ${users.length} users (audience: ${createAnnouncementDto.targetAudience || 'ALL'})`);
+
+        // In-app notifications
+        await this.prisma.notification.createMany({
+          data: users.map((u) => ({
+            userId: u.id,
+            type: 'ANNOUNCEMENT',
+            title: `New announcement: ${announcement.title}`,
+            body: announcement.content.length > 120
+              ? announcement.content.slice(0, 120) + '…'
+              : announcement.content,
+            data: { announcementId: announcement.id },
+          })),
+          skipDuplicates: true,
+        });
+
+        // Emails — sequential with delay + 1 retry to respect Gmail rate limits
+        const postedBy = announcement.creator?.name ?? 'Admin';
+        const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+        for (const u of users) {
+          for (let attempt = 1; attempt <= 2; attempt++) {
+            try {
+              await this.emailService.sendAnnouncement({
+                to: u.email,
+                recipientName: u.name,
+                title: announcement.title,
+                content: announcement.content,
+                priority: announcement.priority,
+                postedBy,
+                postedAt: announcement.createdAt,
+              });
+              console.log(`[Announcement email] Sent to ${u.email}`);
+              break;
+            } catch (err) {
+              const msg = (err as Error).message;
+              if (attempt === 1 && msg.includes('421')) {
+                // Gmail temporary throttle — wait 5 s and retry once
+                await delay(5000);
+              } else {
+                console.error(`[Announcement email] Failed for ${u.email}:`, msg);
+                break;
+              }
+            }
+          }
+          await delay(300); // 300 ms gap between each email
+        }
+      })
+      .catch((err) => console.error('[Announcement] Background task failed:', err));
+
+    return announcement;
   }
 
   async findAllForUser(userId: string) {
@@ -138,12 +201,44 @@ export class AnnouncementsService {
     });
   }
 
-  async remove(id: string) {
-    await this.findOne(id);
+  async remove(id: string, deletedBy: string) {
+    const announcement = await this.findOne(id);
 
+    // 1. Create a history record in the history table
+    await this.prisma.announcementHistory.create({
+      data: {
+        originalId: announcement.id,
+        title: announcement.title,
+        content: announcement.content,
+        priority: announcement.priority,
+        targetAudience: announcement.targetAudience,
+        createdBy: announcement.createdBy,
+        deletedBy,
+        createdAt: announcement.createdAt,
+      },
+    });
+
+    // 2. Perform actual deletion from the active announcements table
     return this.prisma.announcement.delete({
       where: { id },
     });
+  }
+
+  async getHistory() {
+    const histories = await this.prisma.announcementHistory.findMany({
+      orderBy: { deletedAt: 'desc' },
+    });
+
+    const users = await this.prisma.user.findMany({
+      select: { id: true, name: true },
+    });
+    const userMap = new Map(users.map((u) => [u.id, u.name]));
+
+    return histories.map((h) => ({
+      ...h,
+      creatorName: userMap.get(h.createdBy) || 'Unknown',
+      deleterName: userMap.get(h.deletedBy) || 'Unknown',
+    }));
   }
 
   async markAsRead(announcementId: string, userId: string) {
@@ -160,6 +255,16 @@ export class AnnouncementsService {
     const announcements = await this.findAllForUser(userId);
     const unreadCount = announcements.filter((a) => !a.isRead).length;
     return { unreadCount };
+  }
+
+  private buildAudienceWhere(targetAudience: string): object {
+    if (targetAudience === 'EMPLOYEES') {
+      return { role: 'EMPLOYEE' };
+    }
+    if (targetAudience === 'ADMINS') {
+      return { role: { in: ['LAB_ADMIN', 'SUPER_ADMIN'] } };
+    }
+    return {}; // ALL
   }
 
   async getAllAnnouncements(includeInactive = false) {

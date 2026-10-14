@@ -32,6 +32,7 @@ export enum AttendanceStatus {
   WEEKEND = 'WEEKEND',
   HOLIDAY = 'HOLIDAY',
   CASUAL_LEAVE = 'CASUAL_LEAVE',
+  NO_PUNCH = 'NO_PUNCH',
 }
 
 export interface Attendance {
@@ -230,4 +231,49 @@ export interface ActivityEntry {
     name: string;
     status?: UserStatus;
   };
+}
+
+// Asset types
+export enum AssetType {
+  LAPTOP = 'LAPTOP',
+  MONITOR = 'MONITOR',
+  HDD = 'HDD',
+  CONNECTOR = 'CONNECTOR',
+  OTHER = 'OTHER',
+}
+
+export interface Asset {
+  id: string;
+  assetName: string;
+  assetType: AssetType;
+  assetNumber: string;
+  serialNumber?: string;
+  userId?: string;
+  user?: { id: string; name: string; employeeId: string; employeeNumber: number };
+  createdAt: string;
+  updatedAt: string;
+}
+
+export enum AssetAction {
+  ASSIGNED = 'ASSIGNED',
+  RETURNED = 'RETURNED',
+  REASSIGNED = 'REASSIGNED',
+  DELETED = 'DELETED',
+}
+
+export interface AssetHistory {
+  id: string;
+  assetId: string;
+  assetNumber: string;
+  assetName: string;
+  assetType: AssetType;
+  serialNumber?: string;
+  userId?: string;
+  employeeName?: string;
+  employeeId?: string;
+  action: AssetAction;
+  performedBy: string;
+  performedByName: string;
+  remarks?: string;
+  createdAt: string;
 }

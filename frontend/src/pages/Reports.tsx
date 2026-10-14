@@ -8,6 +8,7 @@ import PageHeader from '../components/PageHeader';
 import AttendanceReportTab from './reports/AttendanceReportTab';
 import LeaveReportTab from './reports/LeaveReportTab';
 import PayrollReportTab from './reports/PayrollReportTab';
+import AssetReportTab from './reports/AssetReportTab';
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -45,7 +46,7 @@ const Reports: React.FC = () => {
     <Box>
       <PageHeader
         title="Reports & Analytics"
-        subtitle="Generate and export detailed attendance, leave, and payroll reports."
+        subtitle="Generate and export detailed attendance, leave, payroll, and asset reports."
       />
 
       {usersError && (
@@ -71,6 +72,7 @@ const Reports: React.FC = () => {
             <Tab label="Attendance" icon={<Summarize />} iconPosition="start" />
             <Tab label="Leave" icon={<Summarize />} iconPosition="start" />
             <Tab label="Payroll" icon={<Summarize />} iconPosition="start" />
+            <Tab label="Assets" icon={<Summarize />} iconPosition="start" />
           </Tabs>
 
           <TabPanel value={tabValue} index={0}>
@@ -88,6 +90,10 @@ const Reports: React.FC = () => {
 
           <TabPanel value={tabValue} index={2}>
             <PayrollReportTab users={users} usersLoading={usersLoading} />
+          </TabPanel>
+
+          <TabPanel value={tabValue} index={3}>
+            <AssetReportTab users={users} usersLoading={usersLoading} />
           </TabPanel>
         </CardContent>
       </Card>

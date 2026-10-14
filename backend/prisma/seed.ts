@@ -14,7 +14,7 @@ async function main() {
     update: {},
     create: {
       employeeId: 'CITADMIN001',
-      employeeNumber: 1,
+      employeeNumber: 9999,
       name: 'Super Admin',
       email: 'admin@cambridge.edu.in',
       passwordHash: hashedPassword,
@@ -92,6 +92,28 @@ async function main() {
   });
 
   console.log('✅ Created welcome announcement');
+
+  // Ensure specific user joining date is correct (persisted for future seeds)
+  const targetJoinDate = new Date('2024-10-04');
+  const updated = await prisma.user.updateMany({
+    where: { employeeId: 'CITSEED241' },
+    data: { dateOfJoining: targetJoinDate },
+  });
+  if (updated.count > 0) {
+    console.log(`✅ Ensured CITSEED241 dateOfJoining -> ${targetJoinDate.toISOString().slice(0,10)} (${updated.count} record(s) updated)`);
+  } else {
+    console.log('ℹ️ CITSEED241 not found during seed; no update applied');
+  }
+
+  // Also ensure CITSEED444 has correct joining date
+  const cit444Date = new Date('2024-10-04');
+  const updated444 = await prisma.user.updateMany({
+    where: { employeeId: 'CITSEED444' },
+    data: { dateOfJoining: cit444Date },
+  });
+  if (updated444.count > 0) {
+    console.log(`✅ Ensured CITSEED444 dateOfJoining -> ${cit444Date.toISOString().slice(0,10)} (${updated444.count} record(s) updated)`);
+  }
 
   console.log('\n🎉 Database seeded successfully!');
   console.log('\n📧 Super Admin Credentials:');

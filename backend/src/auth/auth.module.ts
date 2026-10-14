@@ -20,7 +20,7 @@ import { APP_GUARD } from '@nestjs/core';
       useFactory: (config: ConfigService) => {
         const expiresIn = config.get<string>('JWT_EXPIRATION') || '7d';
         return {
-          secret: config.get<string>('JWT_SECRET'),
+          secret: config.get<string>('JWT_SECRET') || 'dev-secret-change-me',
           signOptions: {
             expiresIn: expiresIn as any, // Cast to satisfy TypeScript
           },

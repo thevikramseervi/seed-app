@@ -85,21 +85,19 @@ export class AuthController {
     return { message: 'Logout successful' };
   }
 
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.LAB_ADMIN, Role.SUPER_ADMIN)
+  @UseGuards(JwtAuthGuard)
   @Post('2fa/setup')
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Start 2FA setup (admin only)' })
+  @ApiOperation({ summary: 'Start 2FA setup' })
   @ApiResponse({ status: 200, description: 'Returns QR/secret for authenticator app', type: Setup2faResponseDto })
   async setup2fa(@CurrentUser() user: JwtUser) {
     return this.authService.setup2fa(user.id);
   }
 
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.LAB_ADMIN, Role.SUPER_ADMIN)
+  @UseGuards(JwtAuthGuard)
   @Post('2fa/enable')
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Enable 2FA after verifying code (admin only)' })
+  @ApiOperation({ summary: 'Enable 2FA after verifying code' })
   @ApiResponse({ status: 200, description: '2FA enabled' })
   async enable2fa(@CurrentUser() user: JwtUser, @Body() dto: Enable2faDto) {
     await this.authService.enable2fa(user.id, dto);
@@ -115,11 +113,10 @@ export class AuthController {
     return this.authService.verify2fa(dto);
   }
 
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.LAB_ADMIN, Role.SUPER_ADMIN)
+  @UseGuards(JwtAuthGuard)
   @Post('2fa/disable')
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Disable 2FA (admin only)' })
+  @ApiOperation({ summary: 'Disable 2FA' })
   @ApiResponse({ status: 200, description: '2FA disabled' })
   async disable2fa(@CurrentUser() user: JwtUser) {
     await this.authService.disable2fa(user.id);

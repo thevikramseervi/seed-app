@@ -6,6 +6,7 @@ export const QUERY_KEYS = {
   users: (page?: number, limit?: number) =>
     page !== undefined ? ['users', page, limit] as const : ['users'] as const,
   usersAll: ['users-all'] as const,
+  allUsers: ['all-users'] as const,
   usersForActivity: ['users-for-activity'] as const,
 
   // Attendance
@@ -42,4 +43,12 @@ export const QUERY_KEYS = {
   // Activity
   activities: (scope: 'admin' | 'me', userId: string, date: string) =>
     ['activities', scope, userId, date] as const,
+
+  // Assets
+  myAssets: ['my-assets'] as const,
+  assets: ['assets'] as const,
+  assetReferenceList: ['asset-reference-list'] as const,
+  assetHistory: (filters?: object) => filters ? ['asset-history', filters] as const : ['asset-history'] as const,
+  assetEmployeeHistory: (userId: string) => ['asset-history', 'employee', userId] as const,
+  myAssetHistory: ['my-asset-history'] as const,
 };

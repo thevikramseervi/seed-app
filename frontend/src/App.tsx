@@ -20,6 +20,8 @@ import Announcements from './pages/Announcements';
 import Notifications from './pages/Notifications';
 import Profile from './pages/Profile';
 import Users from './pages/Users';
+import Assets from './pages/Assets';
+import MyAssets from './pages/MyAssets';
 import Holidays from './pages/Holidays';
 import Admin from './pages/Admin';
 import LeaveApproval from './pages/LeaveApproval';
@@ -182,6 +184,8 @@ function AppWithTheme() {
                 <Route path="profile" element={<Profile />} />
                 <Route path="holidays" element={<Holidays />} />
                 <Route path="users" element={<Users />} />
+                <Route path="assets" element={<Assets />} />
+                <Route path="my-assets" element={<MyAssets />} />
                 <Route path="leave-approval" element={<LeaveApproval />} />
                 <Route path="reports" element={<Reports />} />
                 <Route path="admin" element={<Admin />} />
